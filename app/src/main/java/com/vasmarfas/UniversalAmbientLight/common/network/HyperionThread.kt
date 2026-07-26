@@ -326,7 +326,7 @@ class HyperionThread(
         ): HyperionThread {
             val prefs = Preferences(context)
 
-            val host = prefs.getString(R.string.pref_key_host, "") ?: ""
+            val host = prefs.getString(R.string.pref_key_host, "")?.trim() ?: ""
             val port = prefs.getInt(R.string.pref_key_port, 19400)
             val priority = prefs.getInt(R.string.pref_key_priority, 100)
             val reconnect = prefs.getBoolean(R.string.pref_key_reconnect, true)

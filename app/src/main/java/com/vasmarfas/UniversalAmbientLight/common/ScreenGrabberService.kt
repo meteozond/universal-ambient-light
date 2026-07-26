@@ -246,7 +246,14 @@ class ScreenGrabberService : Service() {
         val prefs = Preferences(baseContext)
         mConnectionType =
             prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
-        val host = prefs.getString(R.string.pref_key_host, null)
+
+        validateSettings(baseContext)?.let { error ->
+            mStartError = error.message
+            AnalyticsHelper.logServiceError(baseContext, error.code, error.details)
+            return false
+        }
+
+        val host = prefs.getString(R.string.pref_key_host, null)?.trim()
         val port = prefs.getInt(R.string.pref_key_port, -1)
         val priority =
             prefs.getString(R.string.pref_key_priority, "100")?.takeIf { it.isNotBlank() } ?: "100"
@@ -280,35 +287,6 @@ class ScreenGrabberService : Service() {
         val outputDelayMs = prefs.getInt(R.string.pref_key_output_delay, 0).toLong()
         val updateFrequency = prefs.getInt(R.string.pref_key_update_frequency, 60)
 
-        // For Adalight, host and port are not required
-        if (!"adalight".equals(mConnectionType, ignoreCase = true)) {
-            if (host == null || host == "0.0.0.0" || host == "") {
-                mStartError = resources.getString(R.string.error_empty_host)
-                AnalyticsHelper.logServiceError(baseContext, "empty_host", null)
-                return false
-            }
-            if (port == -1) {
-                mStartError = resources.getString(R.string.error_empty_port)
-                AnalyticsHelper.logServiceError(baseContext, "empty_port", null)
-                return false
-            }
-            // Validate port range (1-65535)
-            if (port < 1 || port > 65535) {
-                mStartError = "Invalid port: $port (must be between 1 and 65535)"
-                AnalyticsHelper.logServiceError(baseContext, "invalid_port", "port: $port")
-                return false
-            }
-        }
-
-        if (mHorizontalLEDCount <= 0 || mVerticalLEDCount <= 0) {
-            mStartError = resources.getString(R.string.error_invalid_led_counts)
-            AnalyticsHelper.logServiceError(
-                baseContext,
-                "invalid_led_counts",
-                "horizontal: $mHorizontalLEDCount, vertical: $mVerticalLEDCount"
-            )
-            return false
-        }
         mMediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         val method = prefs.getString(R.string.pref_key_capture_method, "media_projection")
@@ -1272,6 +1250,63 @@ class ScreenGrabberService : Service() {
         private const val STANDBY_PAUSE_DELAY_MS = 1500L
 
         private var sMediaProjection: MediaProjection? = null
+
+        /** A settings problem that stops capture before it starts. */
+        data class SettingsError(
+            val code: String,
+            val message: String,
+            val details: String? = null,
+        )
+
+        /**
+         * Checks the prefs the service needs before it can send anything, so callers can warn
+         * the user up front instead of letting the service fail after all the permission
+         * dialogs. Returns null when the settings are usable.
+         */
+        @JvmStatic
+        fun validateSettings(context: Context): SettingsError? {
+            val prefs = Preferences(context)
+            val connectionType =
+                prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
+
+            // For Adalight, host and port are not required
+            if (!"adalight".equals(connectionType, ignoreCase = true)) {
+                val host = prefs.getString(R.string.pref_key_host, null)?.trim()
+                if (host.isNullOrEmpty() || host == "0.0.0.0") {
+                    return SettingsError(
+                        "empty_host",
+                        context.getString(R.string.error_empty_host)
+                    )
+                }
+                val port = prefs.getInt(R.string.pref_key_port, -1)
+                if (port == -1) {
+                    return SettingsError(
+                        "empty_port",
+                        context.getString(R.string.error_empty_port)
+                    )
+                }
+                // Validate port range (1-65535)
+                if (port < 1 || port > 65535) {
+                    return SettingsError(
+                        "invalid_port",
+                        context.getString(R.string.error_invalid_port, port),
+                        "port: $port"
+                    )
+                }
+            }
+
+            val horizontalLEDCount = prefs.getInt(R.string.pref_key_x_led)
+            val verticalLEDCount = prefs.getInt(R.string.pref_key_y_led)
+            if (horizontalLEDCount <= 0 || verticalLEDCount <= 0) {
+                return SettingsError(
+                    "invalid_led_counts",
+                    context.getString(R.string.error_invalid_led_counts),
+                    "horizontal: $horizontalLEDCount, vertical: $verticalLEDCount"
+                )
+            }
+
+            return null
+        }
 
         /** True while the service instance is alive (onCreate→onDestroy). */
         @Volatile

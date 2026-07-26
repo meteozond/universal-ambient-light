@@ -103,6 +103,7 @@ import com.vasmarfas.UniversalAmbientLight.common.util.TclBypass
 import com.vasmarfas.UniversalAmbientLight.common.util.UsbSerialPermissionHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.openAccessibilitySettings
 import com.vasmarfas.UniversalAmbientLight.ui.navigation.AppNavHost
+import com.vasmarfas.UniversalAmbientLight.ui.navigation.Screen
 import com.vasmarfas.UniversalAmbientLight.ui.theme.AppTheme
 import kotlin.math.sqrt
 
@@ -113,6 +114,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private var mRecorderRunning by mutableStateOf(false)
+
+    private var mSetupRequiredMessage by mutableStateOf<String?>(null)
     private var mMediaProjectionManager: MediaProjectionManager? = null
     private var mPermissionDeniedCount = 0
     private var mTclWarningShown = false
@@ -249,6 +252,27 @@ class MainActivity : ComponentActivity() {
                         },
                         effectMode = currentEffect
                     )
+
+                    mSetupRequiredMessage?.let { message ->
+                        AlertDialog(
+                            onDismissRequest = { mSetupRequiredMessage = null },
+                            title = { Text(stringResource(R.string.setup_required_title)) },
+                            text = { Text(message) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    mSetupRequiredMessage = null
+                                    navController.navigate(Screen.Settings.route)
+                                }) {
+                                    Text(stringResource(R.string.setup_required_open_settings))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { mSetupRequiredMessage = null }) {
+                                    Text(stringResource(R.string.setup_required_cancel))
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -402,6 +426,15 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleScreenCapture() {
         if (!mRecorderRunning) {
+            // Catch missing host/port/LED counts here — otherwise the user walks through the
+            // overlay and MediaProjection dialogs only to get a toast from the service.
+            ScreenGrabberService.validateSettings(this)?.let { error ->
+                Log.d(TAG, "Start aborted, settings incomplete: ${error.code}")
+                AnalyticsHelper.logServiceError(this, "setup_required_${error.code}", error.details)
+                mSetupRequiredMessage = error.message
+                return
+            }
+
             val prefs = Preferences(this)
             prefs.putBoolean(R.string.pref_key_lighting_was_active, true)
             val captureSource =

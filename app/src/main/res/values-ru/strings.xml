@@ -293,8 +293,12 @@
 
   <string name="pref_error_missing_field">%s не должно быть пустым</string>
   <string name="pref_error_invalid_field" formatted="false">%s недопустимо для %s</string>
-  <string name="error_empty_host">Хост не должен быть пустым</string>
-  <string name="error_empty_port">Порт не должен быть пустым</string>
+  <string name="error_empty_host">Не указан адрес сервера. Откройте Настройки → Подключение → Хост и введите IP устройства с Hyperion/HyperHDR/WLED либо нажмите Сканировать устройства</string>
+  <string name="error_empty_port">Не указан порт. Откройте Настройки → Подключение → Порт (19400 для Hyperion, 4048 для WLED/DDP)</string>
+  <string name="error_invalid_port">Недопустимый порт: %1$d. Значение должно быть от 1 до 65535</string>
+  <string name="setup_required_title">Нужно настроить подключение</string>
+  <string name="setup_required_open_settings">Открыть настройки</string>
+  <string name="setup_required_cancel">Отмена</string>
   <string name="error_invalid_led_counts">Количество LED должно быть указано и больше 0</string>
   <string name="error_server_unreachable">Не удалось подключиться к серверу. Проверьте настройки и запущен ли сервер</string>
   <string name="error_adalight_unreachable">Не удалось подключиться к Adalight. Убедитесь: 1) Устройство подключено через USB OTG, 2) Разрешение USB предоставлено, 3) Верная скорость (baud rate)</string>

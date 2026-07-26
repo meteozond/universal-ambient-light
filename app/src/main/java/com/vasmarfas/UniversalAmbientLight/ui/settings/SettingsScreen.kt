@@ -1648,7 +1648,9 @@ fun EditTextPreference(
         }
 
         fun applyValue() {
-            value = tempValue
+            // Trim: a stray space from an on-screen keyboard would otherwise pass the
+            // "not empty" checks and only fail later as an unreachable host.
+            value = tempValue.trim()
             prefs.putString(keyRes, value)
             onValueChange?.invoke(value)
             keyboardController?.hide()

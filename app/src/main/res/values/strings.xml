@@ -291,8 +291,12 @@
 
   <string name="pref_error_missing_field">%s should not be empty</string>
   <string name="pref_error_invalid_field" formatted="false">%s is not valid for %s</string>
-  <string name="error_empty_host">Host setting should not be empty</string>
-  <string name="error_empty_port">Port setting should not be empty</string>
+  <string name="error_empty_host">Server address is not set. Open Settings → Connection → Host and enter the IP of your Hyperion/HyperHDR/WLED device, or use Scan network</string>
+  <string name="error_empty_port">Port is not set. Open Settings → Connection → Port (19400 for Hyperion, 4048 for WLED/DDP)</string>
+  <string name="error_invalid_port">Invalid port: %1$d. It must be between 1 and 65535</string>
+  <string name="setup_required_title">Setup required</string>
+  <string name="setup_required_open_settings">Open settings</string>
+  <string name="setup_required_cancel">Cancel</string>
   <string name="error_invalid_led_counts">Horizontal &amp; vertical LED counts must be set and greater than 0</string>
   <string name="error_server_unreachable">Could not connect to the hyperion server. Check your settings and make sure hyperion is running</string>
   <string name="error_adalight_unreachable">Could not connect to Adalight device. Make sure: 1) Device is connected via USB OTG cable, 2) USB permission is granted when prompted, 3) Correct baud rate is set in settings</string>

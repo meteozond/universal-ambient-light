@@ -4,7 +4,6 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import android.util.Log
 import androidx.annotation.WorkerThread
-import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.vasmarfas.UniversalAmbientLight.common.util.UsbRootPermissionHelper.grantPermissionViaRootAsync
 import java.util.concurrent.TimeUnit
 
@@ -61,7 +60,7 @@ object UsbRootPermissionHelper {
     fun grantPermissionViaRoot(context: Context): Boolean {
         val usbManager =
             context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
-        val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+        val drivers = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
         if (drivers.isEmpty()) {
             Log.w(TAG, "No USB serial devices found")
             return false

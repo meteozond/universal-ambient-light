@@ -11,7 +11,6 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
-import com.hoho.android.usbserial.driver.UsbSerialProber
 
 /**
  * Helper for requesting USB permission for the first (or specific) USB-Serial device.
@@ -32,19 +31,19 @@ object UsbSerialPermissionHelper {
     fun hasAnySerialDevice(context: Context): Boolean {
         val usbManager =
             context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
-        return UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).isNotEmpty()
+        return UsbSerialProberFactory.getProber().findAllDrivers(usbManager).isNotEmpty()
     }
 
     fun findFirstSerialDevice(context: Context): UsbDevice? {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return null
-        val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+        val drivers = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
         return drivers.firstOrNull()?.device
     }
 
     fun isSerialDevice(context: Context, device: UsbDevice): Boolean {
         val usbManager =
             context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
-        return UsbSerialProber.getDefaultProber()
+        return UsbSerialProberFactory.getProber()
             .findAllDrivers(usbManager)
             .any { it.device.deviceId == device.deviceId }
     }

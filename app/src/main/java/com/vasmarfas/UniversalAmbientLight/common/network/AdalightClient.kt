@@ -4,8 +4,8 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialPort
-import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.vasmarfas.UniversalAmbientLight.common.util.LedDataExtractor
+import com.vasmarfas.UniversalAmbientLight.common.util.UsbSerialProberFactory
 import java.io.IOException
 
 import kotlin.math.max
@@ -89,7 +89,7 @@ class AdalightClient(
             ?: throw IOException("USB service not available on this device")
 
         // Find all available USB serial devices
-        val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+        val availableDrivers = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
         if (availableDrivers.isEmpty()) {
             throw IOException("No USB serial devices found. Please connect your Adalight device via USB OTG cable")
         }
@@ -129,6 +129,28 @@ class AdalightClient(
         try {
             mPort!!.open(connection)
             mPort!!.setParameters(mBaudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+
+            // Поднимаем DTR/RTS. Часть мостов (CP210x, ряд клонов CH340) молчит, пока линии не
+            // подняты; на платах с авто-reset это ещё и перезагружает MCU, чтобы прошивка заново
+            // отправила свой стартовый маркер "Ada" для хендшейка ниже. Best-effort: драйверы,
+            // которые не поддерживают линию, кидают исключение — его игнорируем.
+            try {
+                mPort!!.setDTR(true)
+            } catch (_: Exception) {
+            }
+            try {
+                mPort!!.setRTS(true)
+            } catch (_: Exception) {
+            }
+
+            // Хендшейк по «магическому слову» Adalight: стандартная прошивка при старте печатает
+            // "Ada\n" (см. adalight-sketch.ino и рекомендованный сторонним приложением скетч).
+            // Ждём его, чтобы не начать слать кадры в устройство, которое ещё перезагружается —
+            // именно из-за этого у нас были рассинхрон и мерцание на старте в отличие от аналога.
+            // Если устройство не прислало "Ada" за таймаут — всё равно продолжаем (некоторые
+            // прошивки маркер не шлют), поэтому совместимость не ухудшается.
+            waitForAdaHandshake()
+
             mConnected = true
             mSmoothing.start()
             Log.i(
@@ -152,6 +174,35 @@ class AdalightClient(
                 "Failed to configure USB serial port: " + e.message +
                         ". Try different baud rate or check device compatibility", e
             )
+        }
+    }
+
+    /**
+     * Ждём стартовый маркер "Ada", который стандартная прошивка Adalight печатает при загрузке.
+     * Возвращаемся сразу, как только маркер получен, либо по истечении таймаута (best-effort —
+     * не блокируем устройства, которые маркер не шлют).
+     */
+    private fun waitForAdaHandshake() {
+        val port = mPort ?: return
+        val buf = ByteArray(64)
+        val received = StringBuilder()
+        val deadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
+        try {
+            while (System.currentTimeMillis() < deadline) {
+                val n = port.read(buf, HANDSHAKE_READ_TIMEOUT_MS)
+                if (n > 0) {
+                    received.append(String(buf, 0, n, Charsets.US_ASCII))
+                    if (received.contains(ADA_MAGIC_WORD)) {
+                        Log.i(TAG, "Adalight handshake OK: device announced 'Ada'")
+                        return
+                    }
+                    // Ограничиваем буфер: маркер короткий, хвоста достаточно для склейки на границе.
+                    if (received.length > 128) received.delete(0, received.length - 8)
+                }
+            }
+            Log.i(TAG, "No 'Ada' handshake within ${HANDSHAKE_TIMEOUT_MS}ms — proceeding anyway")
+        } catch (e: Exception) {
+            Log.w(TAG, "Handshake read failed (${e.message}) — proceeding anyway")
         }
     }
 
@@ -439,5 +490,12 @@ class AdalightClient(
 
     companion object {
         private const val TAG = "AdalightClient"
+
+        // Стартовый маркер Adalight, который прошивка печатает при загрузке ("Ada\n").
+        private const val ADA_MAGIC_WORD = "Ada"
+
+        // Бюджет ожидания хендшейка. Покрывает окно перезагрузки MCU (~1.5–2 c) после подъёма DTR.
+        private const val HANDSHAKE_TIMEOUT_MS = 2500L
+        private const val HANDSHAKE_READ_TIMEOUT_MS = 250
     }
 }

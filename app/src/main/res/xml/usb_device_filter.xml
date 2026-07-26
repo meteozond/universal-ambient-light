@@ -33,4 +33,24 @@
     <!-- Espressif (ESP32-S2/S3 native USB) -->
     <usb-device vendor-id="12346" product-id="32978" /> <!-- 303a:80d2 ESP32-S2 -->
     <usb-device vendor-id="12346" product-id="4097" />  <!-- 303a:1001 ESP32-S2/S3 JTAG -->
+    <usb-device vendor-id="12346" product-id="2" />     <!-- 303a:0002 ESP32-S2/S3 CDC -->
+    <usb-device vendor-id="12346" product-id="16385" /> <!-- 303a:4001 ESP32-C3/S3 CDC -->
+
+    <!-- WCH new bridges (Chinese Adalight boxes) -->
+    <usb-device vendor-id="6790" product-id="21971" /> <!-- 1a86:55d3 CH343 -->
+    <usb-device vendor-id="6790" product-id="21973" /> <!-- 1a86:55d5 CH9102X -->
+    <usb-device vendor-id="17224" product-id="21795" /> <!-- 4348:5523 QinHeng alt CH34x -->
+
+    <!-- Arduino (all PIDs, incl. clones/Leonardo/Micro native USB) -->
+    <usb-device vendor-id="9025" />    <!-- 2341:* Arduino -->
+    <usb-device vendor-id="10755" />   <!-- 2a03:* Arduino.org -->
+    <usb-device vendor-id="6991" />    <!-- 1b4f:* SparkFun -->
+
+    <!-- Teensy / PJRC -->
+    <usb-device vendor-id="5824" product-id="1155" /> <!-- 16c0:0483 Teensy serial -->
+    <usb-device vendor-id="5824" product-id="1144" /> <!-- 16c0:0478 Teensy HalfKay -->
+
+    <!-- STM32 Virtual COM / Leaflabs Maple (BluePill Adalight) -->
+    <usb-device vendor-id="1155" product-id="22336" /> <!-- 0483:5740 STM32 VCP -->
+    <usb-device vendor-id="7855" product-id="4" />     <!-- 1eaf:0004 Leaflabs Maple -->
 </resources>

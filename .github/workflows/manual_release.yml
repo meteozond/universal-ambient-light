@@ -384,12 +384,12 @@ jobs:
           RUSTORE_VERSION_ID: ${{ env.RUSTORE_VERSION_ID }}
           RUSTORE_PUBLISH_TYPE: ${{ inputs.rustore_auto_publish && 'INSTANTLY' || 'MANUAL' }}
         run: |
-          # Enforce publishType on the (possibly reused) draft. publishType is only
-          # applied at draft creation — when an existing draft is reused ("You already
-          # have draft version with ID = ..."), this run's value was never set, so an
-          # intended INSTANTLY release kept the draft's old MANUAL type and got stuck
-          # waiting for a manual "Publish" in the console. This call makes it deterministic.
-          # Must run after the APK upload and before commit (send to moderation).
+          # Best-effort: re-apply publishType on a reused draft (it is only set at draft
+          # creation, so reusing an existing draft would keep its old type). This endpoint
+          # needs a right the API key may not have ("This user does not have rights to
+          # perform this action"); publishType is already set at creation, so on failure we
+          # just warn and continue rather than failing the whole release. Grant the key the
+          # right in RuStore Console to make this authoritative for reused drafts.
           BODY=$(jq -n --arg publishType "$RUSTORE_PUBLISH_TYPE" '{publishType: $publishType}')
           RESPONSE=$(curl -s -X POST "https://public-api.rustore.ru/public/v1/application/${PACKAGE_NAME}/version/${RUSTORE_VERSION_ID}/publish-settings" \
             -H "Content-Type: application/json" \
@@ -398,8 +398,7 @@ jobs:
           echo "RuStore publish-settings response: $RESPONSE"
           CODE=$(echo "$RESPONSE" | jq -r '.code // empty')
           if [ "$CODE" != "OK" ]; then
-            echo "RuStore publish-settings failed, code=$CODE"
-            exit 1
+            echo "::warning::RuStore publish-settings skipped (code=$CODE) — using publishType from draft creation"
           fi
 
       - name: Commit RuStore version (send to moderation)

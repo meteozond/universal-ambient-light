@@ -101,6 +101,31 @@ When using **Camera** as the capture source:
 - Ensure good lighting so the camera can clearly see the TV screen.
 - The corner adjustment helps compensate for non-square camera placement relative to the TV.
 
+### 3.2. Camera Sleep Mode
+Camera capture receives no standby signal from the TV, so a powered-off screen keeps
+streaming sensor noise to the strip. The **Camera Sleep Mode** settings group (visible only
+when the capture source is set to **Camera**) monitors the calibrated screen area and
+suspends the capture pipeline once there is nothing new to display. Disabled by default.
+
+- **Enable sleep mode**: master switch for the feature.
+- **Sleep delay (seconds)**: how long the picture must remain blank before the strip turns
+  off. Range: 5–3600 seconds, default 120. Lower it for a faster response; raise it if dark
+  scenes trigger sleep mode.
+- **Blank screen threshold (0–96)**: average brightness of the monitored area at or below
+  which the screen is considered blank. Default: 12. Increase it if a powered-off TV is not
+  detected.
+- **Motion sensitivity threshold (1–64)**: the minimum picture change required to count as
+  motion. Default: 4. Increase it if sensor noise repeatedly wakes the strip.
+- **Sleep on a static picture**: also suspends frame transmission when the picture stops
+  changing (paused video, static menu); the strip retains its last colors. Disabled by
+  default, as an extended static scene will freeze the strip's colors.
+
+While in sleep mode, the camera remains bound but is sampled at 5 Hz over a sparse luminance
+grid instead of running the full perspective-correction pipeline. Waking requires two
+consecutive samples above the threshold, so a single noisy frame cannot flash the strip. All
+four settings can be adjusted while capture is running, since they can only be calibrated
+against a live feed.
+
 ### 4. Smoothing
 - **Enable Smoothing**: Enabled by default. Reduces LED flickering.
 - **Preset**: "Balanced" (default). Options: Off, Responsive, Balanced, Smooth.

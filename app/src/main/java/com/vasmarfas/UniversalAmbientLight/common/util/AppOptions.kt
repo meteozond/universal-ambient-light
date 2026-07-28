@@ -25,7 +25,38 @@ class AppOptions(
     @Volatile var borderDetectionEnabled: Boolean = false,
     @Volatile var borderThreshold: Int = 18,
     @Volatile var borderCheckIntervalFrames: Int = 60,
+    // Camera auto-sleep. Mutable like the color settings because the thresholds can only
+    // be calibrated against a live camera feed.
+    @Volatile var cameraIdleEnabled: Boolean = false,
+    @Volatile var cameraIdleTimeoutSec: Int = 120,
+    @Volatile var cameraIdleDarkLevel: Int = 12,
+    @Volatile var cameraIdleMotionLevel: Int = 4,
+    @Volatile var cameraIdleStaticSleep: Boolean = false,
 ) {
+
+    /** Reload camera auto-sleep fields from preferences. */
+    fun refreshCameraIdleSettings(prefs: Preferences) {
+        cameraIdleEnabled = prefs.getBoolean(
+            com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_enabled,
+            false
+        )
+        cameraIdleTimeoutSec = prefs.getInt(
+            com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_timeout,
+            120
+        ).coerceIn(5, 3600)
+        cameraIdleDarkLevel = prefs.getInt(
+            com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_dark_level,
+            12
+        ).coerceIn(0, 96)
+        cameraIdleMotionLevel = prefs.getInt(
+            com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_motion_level,
+            4
+        ).coerceIn(1, 64)
+        cameraIdleStaticSleep = prefs.getBoolean(
+            com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_static,
+            false
+        )
+    }
 
     /** Reload border-detection fields from preferences. */
     fun refreshBorderSettings(prefs: Preferences) {

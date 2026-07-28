@@ -661,6 +661,80 @@ fun SettingsScreen(
                 }
             }
 
+            // Camera auto-sleep (issue #38). Camera-only: the screen sources already get a
+            // standby signal from ACTION_SCREEN_OFF.
+            if (captureSource == "camera") {
+                SettingsGroup(title = stringResource(R.string.pref_group_camera_idle)) {
+                    val secondsUnit = stringResource(R.string.unit_seconds)
+                    CheckBoxPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_camera_idle_enabled,
+                        title = stringResource(R.string.pref_title_camera_idle_enabled),
+                        summary = stringResource(R.string.pref_summary_camera_idle_enabled),
+                        onValueChange = { enabled ->
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "camera_idle_enabled",
+                                enabled.toString()
+                            )
+                        }
+                    )
+                    EditTextPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_camera_idle_timeout,
+                        title = stringResource(R.string.pref_title_camera_idle_timeout),
+                        summaryProvider = { "$it $secondsUnit" },
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { newValue ->
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "camera_idle_timeout",
+                                newValue
+                            )
+                        }
+                    )
+                    EditTextPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_camera_idle_dark_level,
+                        title = stringResource(R.string.pref_title_camera_idle_dark_level),
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { newValue ->
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "camera_idle_dark_level",
+                                newValue
+                            )
+                        }
+                    )
+                    EditTextPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_camera_idle_motion_level,
+                        title = stringResource(R.string.pref_title_camera_idle_motion_level),
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { newValue ->
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "camera_idle_motion_level",
+                                newValue
+                            )
+                        }
+                    )
+                    CheckBoxPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_camera_idle_static,
+                        title = stringResource(R.string.pref_title_camera_idle_static),
+                        summary = stringResource(R.string.pref_summary_camera_idle_static),
+                        onValueChange = { enabled ->
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "camera_idle_static",
+                                enabled.toString()
+                            )
+                        }
+                    )
+                }
+            }
+
             // Letterbox (black bar) detection (issue #23).
             SettingsGroup(title = stringResource(R.string.pref_group_border_detection)) {
                 val rgbUnit = stringResource(R.string.unit_rgb)

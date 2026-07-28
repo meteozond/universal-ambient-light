@@ -19,7 +19,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
+import com.vasmarfas.UniversalAmbientLight.common.util.CameraIdleDetector
 import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor
+import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.math.min
@@ -60,6 +62,9 @@ class CameraEncoder(
     // Timing
     private val frameIntervalMs = 1000L / options.frameRate
 
+    // While asleep we only need enough samples to notice the TV coming back on.
+    private val idleFrameIntervalMs = max(frameIntervalMs, IDLE_FRAME_INTERVAL_MS)
+
     // Output dimensions
     private val outputWidth: Int
     private val outputHeight: Int
@@ -71,12 +76,49 @@ class CameraEncoder(
     private val mBorderCropper = com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor()
     private var rgbaBytes: ByteArray? = null
     private var pixelInts: IntArray? = null
+    private var outPixels: IntArray? = null
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val perspectiveMatrix = Matrix()
+
+    /** Destination quad of the perspective correction — the whole output bitmap. */
+    private val outputRect: FloatArray
+
+    // Corners projected into raw buffer coordinates, cached per frame geometry.
+    private val mappedCorners = FloatArray(8)
+    private var mappedWidth = -1
+    private var mappedHeight = -1
+    private var mappedRotation = -1
+
+    // --- Auto-sleep (issue #38) ---
+    // Rebuilt whenever the user edits the thresholds; null while the feature is off.
+    private var idleDetector: CameraIdleDetector? = null
+
+    // Luminance grid of the last processed frame (awake) or of the frame we fell asleep
+    // on (asleep), plus a scratch buffer the two swap between.
+    private var idleReference: IntArray? = null
+    private var idleSamples: IntArray? = null
+
+    // Sample area inside the TV quad: left, top, right, bottom in raw coordinates.
+    private val idleBounds = IntArray(4)
+
+    @Volatile
+    private var idleState = CameraIdleDetector.State.AWAKE
+
+    private var blackFrame: ByteArray? = null
+    private var lastSentWidth = 0
+    private var lastSentHeight = 0
 
     init {
         val q = if (options.captureQuality > 0) options.captureQuality else 128
         outputWidth = max(32, min(q, 512))
         outputHeight = max(32, (outputWidth * 9f / 16f).toInt())
+
+        outputRect = floatArrayOf(
+            0f, 0f,
+            outputWidth.toFloat(), 0f,
+            outputWidth.toFloat(), outputHeight.toFloat(),
+            0f, outputHeight.toFloat()
+        )
 
         if (DEBUG) Log.d(
             TAG,
@@ -208,7 +250,12 @@ class CameraEncoder(
                 return@setAnalyzer
             }
             val now = System.currentTimeMillis()
-            if (now - lastFrameTime >= frameIntervalMs) {
+            val interval = if (idleState == CameraIdleDetector.State.AWAKE) {
+                frameIntervalMs
+            } else {
+                idleFrameIntervalMs
+            }
+            if (now - lastFrameTime >= interval) {
                 lastFrameTime = now
                 try {
                     processFrame(imageProxy)
@@ -220,6 +267,11 @@ class CameraEncoder(
         }
 
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+        // A rebound camera starts a new session: don't judge it by the old frames.
+        idleDetector?.reset()
+        idleReference = null
+        idleState = CameraIdleDetector.State.AWAKE
 
         try {
             provider.bindToLifecycle(this, cameraSelector, imageAnalysis)
@@ -239,11 +291,17 @@ class CameraEncoder(
         val height = imageProxy.height
         val rotation = imageProxy.imageInfo.rotationDegrees
 
-        // 1. Read RGBA bytes from camera
         val plane = imageProxy.planes[0]
         val buffer = plane.buffer
         val rowStride = plane.rowStride
 
+        // 1. Project the configured corners onto the raw buffer (cached per geometry)
+        val srcPts = mapCornersToRaw(width, height, rotation)
+
+        // 2. Auto-sleep: while the TV has nothing new to show, everything below is skipped
+        if (!updateIdleState(buffer, rowStride)) return
+
+        // 3. Read RGBA bytes from camera
         val totalBytes = rowStride * height
         if (rgbaBytes == null || rgbaBytes!!.size < totalBytes) {
             rgbaBytes = ByteArray(totalBytes)
@@ -251,7 +309,7 @@ class CameraEncoder(
         buffer.rewind()
         buffer.get(rgbaBytes!!, 0, min(totalBytes, buffer.remaining()))
 
-        // 2. Create source Bitmap (RGBA → ARGB conversion)
+        // 4. Create source Bitmap (RGBA → ARGB conversion)
         if (srcBitmap == null || srcBitmap!!.width != width || srcBitmap!!.height != height) {
             srcBitmap?.recycle()
             srcBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -276,49 +334,8 @@ class CameraEncoder(
         }
         srcBitmap!!.setPixels(pixelInts!!, 0, width, 0, 0, width, height)
 
-        // 3. Compute display dimensions after rotation
-        val displayWidth: Int
-        val displayHeight: Int
-        if (rotation == 90 || rotation == 270) {
-            displayWidth = height
-            displayHeight = width
-        } else {
-            displayWidth = width
-            displayHeight = height
-        }
-
-        // 4. Convert normalized corners (in display space) to raw image space
-        val displayPts = floatArrayOf(
-            mCorners[0] * displayWidth, mCorners[1] * displayHeight,  // top-left
-            mCorners[2] * displayWidth, mCorners[3] * displayHeight,  // top-right
-            mCorners[4] * displayWidth, mCorners[5] * displayHeight,  // bottom-right
-            mCorners[6] * displayWidth, mCorners[7] * displayHeight   // bottom-left
-        )
-
-        // Build forward rotation matrix (raw → display) and invert to get display → raw
-        if (rotation != 0) {
-            val rawToDisplay = Matrix()
-            rawToDisplay.postRotate(rotation.toFloat())
-            when (rotation) {
-                90 -> rawToDisplay.postTranslate(height.toFloat(), 0f)
-                180 -> rawToDisplay.postTranslate(width.toFloat(), height.toFloat())
-                270 -> rawToDisplay.postTranslate(0f, width.toFloat())
-            }
-            val displayToRaw = Matrix()
-            rawToDisplay.invert(displayToRaw)
-            displayToRaw.mapPoints(displayPts)
-        }
-
         // 5. Perspective correction: srcPts → output rectangle
-        val dstPts = floatArrayOf(
-            0f, 0f,
-            outputWidth.toFloat(), 0f,
-            outputWidth.toFloat(), outputHeight.toFloat(),
-            0f, outputHeight.toFloat()
-        )
-
-        val perspectiveMatrix = Matrix()
-        perspectiveMatrix.setPolyToPoly(displayPts, 0, dstPts, 0, 4)
+        perspectiveMatrix.setPolyToPoly(srcPts, 0, outputRect, 0, 4)
 
         // 6. Draw source bitmap with perspective correction into output
         if (correctedBitmap == null || correctedBitmap!!.width != outputWidth || correctedBitmap!!.height != outputHeight) {
@@ -332,8 +349,8 @@ class CameraEncoder(
         canvas.drawBitmap(srcBitmap!!, perspectiveMatrix, paint)
 
         // 7. Extract RGB from corrected bitmap
-        val outPixels = IntArray(outputWidth * outputHeight)
-        correctedBitmap!!.getPixels(outPixels, 0, outputWidth, 0, 0, outputWidth, outputHeight)
+        val pixels = outPixels ?: IntArray(outputWidth * outputHeight).also { outPixels = it }
+        correctedBitmap!!.getPixels(pixels, 0, outputWidth, 0, 0, outputWidth, outputHeight)
 
         val rgbSize = outputWidth * outputHeight * 3
         if (rgbBuffer == null || rgbBuffer!!.size < rgbSize) {
@@ -341,7 +358,7 @@ class CameraEncoder(
         }
 
         var idx = 0
-        for (pixel in outPixels) {
+        for (pixel in pixels) {
             rgbBuffer!![idx++] = ((pixel shr 16) and 0xFF).toByte() // R
             rgbBuffer!![idx++] = ((pixel shr 8) and 0xFF).toByte()  // G
             rgbBuffer!![idx++] = (pixel and 0xFF).toByte()           // B
@@ -353,7 +370,245 @@ class CameraEncoder(
         // 9. Send frame (with optional letterbox crop)
         val cropped =
             mBorderCropper.applyForEncoder(rgbBuffer!!, outputWidth, outputHeight, options)
+        lastSentWidth = cropped.width
+        lastSentHeight = cropped.height
         listener.sendFrame(cropped.rgb, cropped.width, cropped.height)
+    }
+
+    // ======================== Geometry ========================
+
+    /**
+     * Projects the configured corners (normalized, display space) onto raw buffer
+     * coordinates. Returns a reused array — callers must only read it. Recomputed when the
+     * frame geometry or the sensor rotation changes, which also refreshes [idleBounds].
+     */
+    private fun mapCornersToRaw(width: Int, height: Int, rotation: Int): FloatArray {
+        if (width == mappedWidth && height == mappedHeight && rotation == mappedRotation) {
+            return mappedCorners
+        }
+
+        // Display dimensions after rotation
+        val displayWidth: Int
+        val displayHeight: Int
+        if (rotation == 90 || rotation == 270) {
+            displayWidth = height
+            displayHeight = width
+        } else {
+            displayWidth = width
+            displayHeight = height
+        }
+
+        mappedCorners[0] = mCorners[0] * displayWidth  // top-left
+        mappedCorners[1] = mCorners[1] * displayHeight
+        mappedCorners[2] = mCorners[2] * displayWidth  // top-right
+        mappedCorners[3] = mCorners[3] * displayHeight
+        mappedCorners[4] = mCorners[4] * displayWidth  // bottom-right
+        mappedCorners[5] = mCorners[5] * displayHeight
+        mappedCorners[6] = mCorners[6] * displayWidth  // bottom-left
+        mappedCorners[7] = mCorners[7] * displayHeight
+
+        // Build forward rotation matrix (raw → display) and invert to get display → raw
+        if (rotation != 0) {
+            val rawToDisplay = Matrix()
+            rawToDisplay.postRotate(rotation.toFloat())
+            when (rotation) {
+                90 -> rawToDisplay.postTranslate(height.toFloat(), 0f)
+                180 -> rawToDisplay.postTranslate(width.toFloat(), height.toFloat())
+                270 -> rawToDisplay.postTranslate(0f, width.toFloat())
+            }
+            val displayToRaw = Matrix()
+            rawToDisplay.invert(displayToRaw)
+            displayToRaw.mapPoints(mappedCorners)
+        }
+
+        updateIdleBounds(width, height)
+
+        mappedWidth = width
+        mappedHeight = height
+        mappedRotation = rotation
+        return mappedCorners
+    }
+
+    /**
+     * Axis-aligned box inside the TV quad used for auto-sleep sampling. Inset so a slightly
+     * misaligned quad still samples the panel and not the wall around it.
+     */
+    private fun updateIdleBounds(width: Int, height: Int) {
+        var minX = mappedCorners[0]
+        var maxX = mappedCorners[0]
+        var minY = mappedCorners[1]
+        var maxY = mappedCorners[1]
+        for (i in 1 until 4) {
+            val x = mappedCorners[i * 2]
+            val y = mappedCorners[i * 2 + 1]
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+
+        val insetX = (maxX - minX) * IDLE_ROI_INSET
+        val insetY = (maxY - minY) * IDLE_ROI_INSET
+        idleBounds[0] = (minX + insetX).toInt().coerceIn(0, width - 1)
+        idleBounds[1] = (minY + insetY).toInt().coerceIn(0, height - 1)
+        idleBounds[2] = (maxX - insetX).toInt().coerceIn(idleBounds[0], width - 1)
+        idleBounds[3] = (maxY - insetY).toInt().coerceIn(idleBounds[1], height - 1)
+    }
+
+    // ======================== Auto-sleep ========================
+
+    /**
+     * Updates the auto-sleep state from this frame.
+     *
+     * @return true when the frame should be processed and streamed to the LEDs
+     */
+    private fun updateIdleState(buffer: ByteBuffer, rowStride: Int): Boolean {
+        val detector = syncIdleDetector()
+        if (detector == null) {
+            idleState = CameraIdleDetector.State.AWAKE
+            return true
+        }
+
+        val samples = idleSamples ?: IntArray(IDLE_SAMPLE_COUNT).also { idleSamples = it }
+        val luma = sampleLuma(buffer, rowStride, samples)
+
+        // Nothing to compare the first sample of a session against: report the maximum
+        // deviation so we can never fall asleep before having seen two frames.
+        val reference = idleReference
+        val deviation = if (reference == null) MAX_DEVIATION else meanDeviation(samples, reference)
+
+        val previous = detector.state
+        val current = detector.update(luma, deviation, System.currentTimeMillis())
+        idleState = current
+
+        if (current == CameraIdleDetector.State.AWAKE) {
+            // Awake: compare against the previous frame. The arrays trade places so neither
+            // has to be reallocated.
+            idleReference = samples
+            idleSamples = reference
+        }
+        // Asleep: the reference stays frozen on the frame we fell asleep on, so a slow fade
+        // accumulates instead of hiding in per-frame noise. See CameraIdleDetector.
+
+        if (current != previous) onIdleStateChanged(previous, current)
+        return current == CameraIdleDetector.State.AWAKE
+    }
+
+    /**
+     * Returns the detector matching the current preferences, rebuilding it when the user
+     * edits the thresholds mid-session, or null while auto-sleep is off.
+     */
+    private fun syncIdleDetector(): CameraIdleDetector? {
+        if (!options.cameraIdleEnabled) {
+            val existing = idleDetector ?: return null
+            if (existing.isAsleep) Log.i(TAG, "Auto-sleep turned off while asleep — resuming")
+            idleDetector = null
+            idleReference = null
+            return null
+        }
+
+        // Compared field by field rather than against a fresh Config, so the common case
+        // (settings unchanged) allocates nothing on the capture thread.
+        val timeoutMs = options.cameraIdleTimeoutSec * 1000L
+        val existing = idleDetector
+        if (existing != null &&
+            existing.config.timeoutMs == timeoutMs &&
+            existing.config.darkLevel == options.cameraIdleDarkLevel &&
+            existing.config.motionLevel == options.cameraIdleMotionLevel &&
+            existing.config.staticSleepEnabled == options.cameraIdleStaticSleep
+        ) {
+            return existing
+        }
+
+        // Thresholds changed (or first frame): start awake under the new settings.
+        val config = CameraIdleDetector.Config(
+            timeoutMs = timeoutMs,
+            darkLevel = options.cameraIdleDarkLevel,
+            motionLevel = options.cameraIdleMotionLevel,
+            staticSleepEnabled = options.cameraIdleStaticSleep,
+        )
+        return CameraIdleDetector(config).also { idleDetector = it }
+    }
+
+    private fun onIdleStateChanged(
+        from: CameraIdleDetector.State,
+        to: CameraIdleDetector.State,
+    ) {
+        when (to) {
+            CameraIdleDetector.State.SLEEP_DARK -> {
+                Log.i(TAG, "Auto-sleep: screen blank, turning LEDs off")
+                sendBlackFrame()
+            }
+
+            CameraIdleDetector.State.SLEEP_STATIC ->
+                Log.i(TAG, "Auto-sleep: picture frozen, holding last colors")
+
+            CameraIdleDetector.State.AWAKE ->
+                Log.i(TAG, "Auto-sleep: woke up from $from")
+        }
+    }
+
+    /**
+     * Turns the strip off for the duration of a blank-screen sleep.
+     *
+     * Sent as a normal frame rather than via [HyperionThread.HyperionThreadListener.clear]
+     * because the Hyperion keepalive resends the last *frame* ([HyperionThread] holds it
+     * across a clear), so a cleared strip would light back up a second later. A black frame
+     * stays black for as long as any protocol's keepalive repeats it.
+     */
+    private fun sendBlackFrame() {
+        val w = if (lastSentWidth > 0) lastSentWidth else outputWidth
+        val h = if (lastSentHeight > 0) lastSentHeight else outputHeight
+        val size = w * h * 3
+        val black = blackFrame?.takeIf { it.size == size }
+            ?: ByteArray(size).also { blackFrame = it }
+        listener.sendFrame(black, w, h)
+    }
+
+    /**
+     * Fills [out] with a sparse luminance grid over [idleBounds] and returns its mean.
+     * Reads the camera buffer directly — a few hundred samples per frame instead of the
+     * full-frame conversion the streaming path needs.
+     */
+    private fun sampleLuma(buffer: ByteBuffer, rowStride: Int, out: IntArray): Int {
+        val left = idleBounds[0]
+        val top = idleBounds[1]
+        val spanX = (idleBounds[2] - left).toFloat()
+        val spanY = (idleBounds[3] - top).toFloat()
+        val limit = buffer.limit()
+
+        var sum = 0
+        var i = 0
+        for (row in 0 until IDLE_SAMPLE_ROWS) {
+            val y = top + (spanY * (row + 0.5f) / IDLE_SAMPLE_ROWS).toInt()
+            val rowOffset = y * rowStride
+            for (col in 0 until IDLE_SAMPLE_COLS) {
+                val x = left + (spanX * (col + 0.5f) / IDLE_SAMPLE_COLS).toInt()
+                val index = rowOffset + x * 4
+                // Rows may be padded past the end of the buffer on some devices.
+                val luma = if (index >= 0 && index + 2 < limit) {
+                    val r = buffer.get(index).toInt() and 0xFF
+                    val g = buffer.get(index + 1).toInt() and 0xFF
+                    val b = buffer.get(index + 2).toInt() and 0xFF
+                    (r * 77 + g * 150 + b * 29) shr 8
+                } else {
+                    0
+                }
+                out[i++] = luma
+                sum += luma
+            }
+        }
+        return sum / IDLE_SAMPLE_COUNT
+    }
+
+    /** Mean absolute luminance difference between two sample grids. */
+    private fun meanDeviation(samples: IntArray, reference: IntArray): Int {
+        var sum = 0
+        for (i in samples.indices) {
+            val d = samples[i] - reference[i]
+            sum += if (d < 0) -d else d
+        }
+        return sum / samples.size
     }
 
     // ======================== Helpers ========================
@@ -375,6 +630,21 @@ class CameraEncoder(
         private const val CAMERA_HEIGHT = 480
         private const val CLEAR_FRAMES = 5
         private const val CLEAR_DELAY_MS = 100L
+
+        // Auto-sleep sampling. 24x18 points over the TV area is plenty to tell a lit panel
+        // from a dark one and to notice a picture change, at ~0.1% of the pixel work the
+        // streaming path does.
+        private const val IDLE_SAMPLE_COLS = 24
+        private const val IDLE_SAMPLE_ROWS = 18
+        private const val IDLE_SAMPLE_COUNT = IDLE_SAMPLE_COLS * IDLE_SAMPLE_ROWS
+
+        /** Fraction trimmed off each side of the TV quad before sampling. */
+        private const val IDLE_ROI_INSET = 0.12f
+
+        /** Sampling period while asleep: 5 Hz, so waking up takes well under a second. */
+        private const val IDLE_FRAME_INTERVAL_MS = 200L
+
+        private const val MAX_DEVIATION = 255
 
         /** Parse corners string "x1,y1,x2,y2,x3,y3,x4,y4" → FloatArray(8) */
         fun parseCornersString(str: String?): FloatArray {

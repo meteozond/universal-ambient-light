@@ -171,6 +171,18 @@
 
     <string name="pref_key_camera_corners" translatable="false">pref_key_camera_corners</string>
 
+    <!-- Camera auto-sleep -->
+    <string name="pref_key_camera_idle_enabled" translatable="false">pref_key_camera_idle_enabled</string>
+    <bool name="pref_default_camera_idle_enabled" translatable="false">false</bool>
+    <string name="pref_key_camera_idle_timeout" translatable="false">pref_key_camera_idle_timeout</string>
+    <integer name="pref_default_camera_idle_timeout" translatable="false">120</integer>
+    <string name="pref_key_camera_idle_dark_level" translatable="false">pref_key_camera_idle_dark_level</string>
+    <integer name="pref_default_camera_idle_dark_level" translatable="false">12</integer>
+    <string name="pref_key_camera_idle_motion_level" translatable="false">pref_key_camera_idle_motion_level</string>
+    <integer name="pref_default_camera_idle_motion_level" translatable="false">4</integer>
+    <string name="pref_key_camera_idle_static" translatable="false">pref_key_camera_idle_static</string>
+    <bool name="pref_default_camera_idle_static" translatable="false">false</bool>
+
     <!-- Capture Method -->
     <string name="pref_key_capture_method" translatable="false">pref_key_capture_method</string>
     <string name="pref_default_capture_method" translatable="false">media_projection</string>

@@ -1169,6 +1169,7 @@ class ScreenGrabberService : Service() {
             borderCheckIntervalFrames = prefs.getInt(R.string.pref_key_border_check_interval, 60)
                 .coerceIn(1, 300)
         )
+        opts.refreshCameraIdleSettings(prefs)
         mActiveOptions = opts
         registerColorPrefsListener()
         return opts
@@ -1197,12 +1198,22 @@ class ScreenGrabberService : Service() {
             keyBr, keyBg, keyBb, keyGr, keyGg, keyGb
         )
         val borderKeys = setOf(keyBorderOn, keyBorderTh, keyBorderIv)
+        // Auto-sleep thresholds are only tunable against a live camera feed, so they follow
+        // the same edit-while-capturing path as the color settings.
+        val cameraIdleKeys = setOf(
+            getString(R.string.pref_key_camera_idle_enabled),
+            getString(R.string.pref_key_camera_idle_timeout),
+            getString(R.string.pref_key_camera_idle_dark_level),
+            getString(R.string.pref_key_camera_idle_motion_level),
+            getString(R.string.pref_key_camera_idle_static),
+        )
         val listener =
             android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                 if (key == null) return@OnSharedPreferenceChangeListener
                 val prefs = Preferences(this)
                 if (key in colorKeys) mActiveOptions?.refreshColorSettings(prefs)
                 if (key in borderKeys) mActiveOptions?.refreshBorderSettings(prefs)
+                if (key in cameraIdleKeys) mActiveOptions?.refreshCameraIdleSettings(prefs)
             }
         sharedPrefs.registerOnSharedPreferenceChangeListener(listener)
         mPrefsListener = listener

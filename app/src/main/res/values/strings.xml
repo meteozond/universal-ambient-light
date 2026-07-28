@@ -246,8 +246,20 @@
   <string name="pref_summary_border_threshold">RGB-channel value below which a pixel is treated as black. Lower = stricter (only pure black counts); higher = more aggressive (also crops dark grey edges). Default 18.</string>
   <string name="pref_title_border_check_interval">Detection interval (frames)</string>
   <string name="pref_summary_border_check_interval">Re-scan the frame for bars every N captured frames. At 60 fps, 60 ≈ 1 second. Higher = less CPU but slower reaction. Range 1–300, default 60.</string>
+  <string name="pref_group_camera_idle">Camera Sleep Mode</string>
+  <string name="pref_title_camera_idle_enabled">Enable sleep mode</string>
+  <string name="pref_summary_camera_idle_enabled">Camera capture receives no standby signal from the TV, so a powered-off screen keeps streaming sensor noise to the strip. When enabled, the LEDs turn off once the picture goes blank, and frame transmission pauses until the picture returns. Disabled by default.</string>
+  <string name="pref_title_camera_idle_timeout">Sleep delay (seconds)</string>
+  <string name="pref_summary_camera_idle_timeout">The duration the picture must remain blank before sleep mode activates. Setting this too low may cause dark scenes to trigger sleep mode unintentionally. Range: 5–3600 seconds. Default: 120.</string>
+  <string name="pref_title_camera_idle_dark_level">Blank screen threshold (0–96)</string>
+  <string name="pref_summary_camera_idle_dark_level">The average brightness of the monitored area at or below which the screen is considered blank. Increase this value if a powered-off TV is not detected; decrease it if dark scenes trigger sleep mode. Default: 12.</string>
+  <string name="pref_title_camera_idle_motion_level">Motion sensitivity threshold (1–64)</string>
+  <string name="pref_summary_camera_idle_motion_level">The minimum change in picture content required to be considered motion. Increase this value if sensor noise repeatedly wakes the strip from sleep mode. Default: 4.</string>
+  <string name="pref_title_camera_idle_static">Sleep on a static picture</string>
+  <string name="pref_summary_camera_idle_static">When enabled, frame transmission also pauses if the picture stops changing (e.g. a paused video or a static menu); the strip retains its last displayed colors. Disabled by default, as an extended static scene will freeze the strip\'s colors.</string>
   <string name="unit_rgb">RGB</string>
   <string name="unit_frames">frames</string>
+  <string name="unit_seconds">s</string>
   <string name="battery_optimization_prompt">Чтобы захват/подсветка стабильнее работали в фоне (особенно на TV), рекомендуем отключить оптимизацию батареи для приложения.</string>
   <string-array name="pref_list_capture_quality">
     <item>Low (64px)</item>

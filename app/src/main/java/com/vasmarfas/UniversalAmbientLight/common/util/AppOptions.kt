@@ -117,8 +117,6 @@ class AppOptions(
     }
 
     private val minimumImagePacketSize: Int
-    val blackThreshold: Int =
-        5 // The limit each RGB value must be under to be considered a black pixel [0-255]
 
     init {
         /*

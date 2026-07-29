@@ -1177,7 +1177,7 @@ class ScreenGrabberService : Service() {
 
     private fun registerColorPrefsListener() {
         if (mPrefsListener != null) return
-        val sharedPrefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+        val sharedPrefs = Preferences.defaultSharedPreferences(this)
         val keyBrightness = getString(R.string.pref_key_color_brightness)
         val keyContrast = getString(R.string.pref_key_color_contrast)
         val keyBlack = getString(R.string.pref_key_color_black_level)
@@ -1222,7 +1222,7 @@ class ScreenGrabberService : Service() {
     private fun unregisterColorPrefsListener() {
         val listener = mPrefsListener ?: return
         try {
-            androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+            Preferences.defaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(listener)
         } catch (_: Exception) {
         }

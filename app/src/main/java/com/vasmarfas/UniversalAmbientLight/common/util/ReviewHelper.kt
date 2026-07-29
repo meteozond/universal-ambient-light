@@ -26,7 +26,7 @@ object ReviewHelper {
      * Increments lighting start counter and checks if review dialog should be shown
      */
     fun onLightingStarted(activity: Activity) {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(activity)
+        val prefs = Preferences.defaultSharedPreferences(activity)
 
         val currentCount = prefs.getInt(PREF_KEY_LIGHTING_START_COUNT, 0)
         val newCount = currentCount + 1
@@ -41,7 +41,7 @@ object ReviewHelper {
      * Checks if review dialog should be shown
      */
     private fun shouldShowReviewDialog(context: Context): Boolean {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val prefs = Preferences.defaultSharedPreferences(context)
 
         val reviewCompleted = prefs.getBoolean(PREF_KEY_REVIEW_COMPLETED, false)
         if (reviewCompleted) {
@@ -87,7 +87,7 @@ object ReviewHelper {
      */
     private fun requestReview(activity: Activity) {
         val reviewManager: ReviewManager = ReviewManagerFactory.create(activity)
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(activity)
+        val prefs = Preferences.defaultSharedPreferences(activity)
 
         val request = reviewManager.requestReviewFlow()
         request.addOnCompleteListener { requestTask ->
@@ -115,7 +115,7 @@ object ReviewHelper {
      * Resets dismissal flag (for testing)
      */
     fun resetReviewState(context: Context) {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val prefs = Preferences.defaultSharedPreferences(context)
         prefs.edit {
             putBoolean(PREF_KEY_REVIEW_DISMISSED, false)
             putBoolean(PREF_KEY_REVIEW_COMPLETED, false)
@@ -128,7 +128,7 @@ object ReviewHelper {
      * Resets all review data including start counter (for testing)
      */
     fun resetAllReviewData(context: Context) {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val prefs = Preferences.defaultSharedPreferences(context)
         prefs.edit {
             putBoolean(PREF_KEY_REVIEW_DISMISSED, false)
             putBoolean(PREF_KEY_REVIEW_COMPLETED, false)
@@ -151,7 +151,7 @@ object ReviewHelper {
      * Gets current state for debugging
      */
     fun getReviewState(context: Context): String {
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+        val prefs = Preferences.defaultSharedPreferences(context)
         val lightingStarts = prefs.getInt(PREF_KEY_LIGHTING_START_COUNT, 0)
         val dismissed = prefs.getBoolean(PREF_KEY_REVIEW_DISMISSED, false)
         val completed = prefs.getBoolean(PREF_KEY_REVIEW_COMPLETED, false)

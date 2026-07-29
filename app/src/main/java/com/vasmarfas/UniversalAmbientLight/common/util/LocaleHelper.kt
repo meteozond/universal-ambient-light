@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.os.LocaleList
-import androidx.preference.PreferenceManager
 import java.util.Locale
 
 object LocaleHelper {
@@ -29,12 +28,12 @@ object LocaleHelper {
     }
 
     private fun getPersistedData(context: Context, defaultLanguage: String): String {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+        val preferences = Preferences.defaultSharedPreferences(context)
         return preferences.getString("language", defaultLanguage) ?: defaultLanguage
     }
 
     private fun persist(context: Context, language: String) {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+        val preferences = Preferences.defaultSharedPreferences(context)
         preferences.edit().putString("language", language).apply()
     }
 

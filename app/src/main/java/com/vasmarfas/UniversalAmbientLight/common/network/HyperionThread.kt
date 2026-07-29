@@ -58,9 +58,6 @@ class HyperionThread(
     private val mKeepAliveExecutor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor()
 
-    // ColorSmoothing
-    private val mSmoothing: ColorSmoothing? = null // Smoothing теперь внутри клиентов
-
     private class FrameData(val data: ByteArray, val width: Int, val height: Int)
 
     private val mListener = object : HyperionThreadListener {

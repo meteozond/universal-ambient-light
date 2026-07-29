@@ -281,7 +281,7 @@ class MainActivity : ComponentActivity() {
     private fun maybeRequestBatteryOptimizationExemption() {
         if (PermissionHelper.isIgnoringBatteryOptimizations(this)) return
 
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+        val prefs = Preferences.defaultSharedPreferences(this)
         val keyLastAttempt = "battery_opt_exemption_last_attempt_ms"
         val lastAttempt = prefs.getLong(keyLastAttempt, 0L)
         val now = System.currentTimeMillis()
@@ -300,7 +300,7 @@ class MainActivity : ComponentActivity() {
 
         // log battery-opt exemption grant once per install
         run {
-            val p = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+            val p = Preferences.defaultSharedPreferences(this)
             val loggedKey = "battery_opt_granted_logged"
             if (!p.getBoolean(loggedKey, false) && PermissionHelper.isIgnoringBatteryOptimizations(
                     this
@@ -385,7 +385,7 @@ class MainActivity : ComponentActivity() {
 
         // shouldShowRequestPermissionRationale returns false both on the first ask AND
         // after "Don't ask again" — disambiguate via a one-time pref so we stop spamming.
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this)
+        val prefs = Preferences.defaultSharedPreferences(this)
         val askedBefore = prefs.getBoolean(PREF_NOTIF_PERMISSION_ASKED, false)
         if (askedBefore && !ActivityCompat.shouldShowRequestPermissionRationale(
                 this, Manifest.permission.POST_NOTIFICATIONS

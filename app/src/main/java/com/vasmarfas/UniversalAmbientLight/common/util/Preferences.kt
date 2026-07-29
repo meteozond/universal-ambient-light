@@ -1,10 +1,10 @@
 package com.vasmarfas.UniversalAmbientLight.common.util
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.core.content.edit
-import androidx.preference.PreferenceManager
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class Preferences(context: Context) {
 
-    private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+    private val preferences = defaultSharedPreferences(context)
     private val resources = context.resources
 
     fun contains(@StringRes keyResourceId: Int): Boolean = preferences.contains(key(keyResourceId))
@@ -103,5 +103,11 @@ class Preferences(context: Context) {
 
     companion object {
         private val sDefaultKeyCache = ConcurrentHashMap<Long, Int>()
+
+        fun defaultSharedPreferences(context: Context): SharedPreferences =
+            context.getSharedPreferences(
+                context.packageName + "_preferences",
+                Context.MODE_PRIVATE
+            )
     }
 }

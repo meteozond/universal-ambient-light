@@ -124,11 +124,8 @@ kotlin {
 }
 
 dependencies {
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.constraintlayout)
-    implementation(libs.androidx.preference.ktx)
     implementation(libs.androidx.localbroadcastmanager)
     implementation(libs.flatbuffers.java)
     implementation(libs.dadb)
@@ -136,10 +133,6 @@ dependencies {
     implementation(libs.conscrypt.android)
     implementation(libs.sun.security.android)
     implementation(libs.usb.serial)
-
-    implementation(libs.androidx.leanback)
-    implementation(libs.androidx.leanback.preference)
-    implementation(libs.konfetti.xml)
 
     // Compose
     val composeBom = platform(libs.androidx.compose.bom)
@@ -154,13 +147,8 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
 
-    // Compose for TV
-    implementation(libs.androidx.tv.foundation)
-    implementation(libs.androidx.tv.material)
-
     // Integration with activities
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.app.update)
     implementation(libs.app.update.ktx)

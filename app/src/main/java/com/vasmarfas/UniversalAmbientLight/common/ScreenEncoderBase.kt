@@ -8,7 +8,6 @@ import android.os.Process
 import android.util.Log
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
-import com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor
 
 abstract class ScreenEncoderBase(
     protected val mListener: HyperionThread.HyperionThreadListener,
@@ -22,7 +21,6 @@ abstract class ScreenEncoderBase(
     // Configuration (immutable after construction)
     protected val mFrameRate: Int = options.frameRate
     protected val mAvgColor: Boolean = options.useAverageColor
-    protected val mRemoveBorders = false // Disabled for now
     private val mInitOrientation: Int
     private val mWidthScaled: Int
     private val mHeightScaled: Int
@@ -32,7 +30,6 @@ abstract class ScreenEncoderBase(
     private val mScreenHeight: Int = height
 
     // Components
-    protected val mBorderProcessor: BorderProcessor
     protected val mHandler: Handler
     private val mHandlerThread: HandlerThread
 
@@ -44,8 +41,6 @@ abstract class ScreenEncoderBase(
     private var mIsCapturing: Boolean = false
 
     init {
-        mBorderProcessor = BorderProcessor(options.blackThreshold)
-
         // Determine orientation
         mInitOrientation =
             if (width > height) Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT

@@ -11,3 +11,7 @@ google-services.json
 /captures
 .externalNativeBuild
 .cxx
+.kotlin/
+__pycache__/
+/app/full/
+/app/release/

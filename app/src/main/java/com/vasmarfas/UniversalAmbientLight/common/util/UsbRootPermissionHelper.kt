@@ -99,6 +99,7 @@ object UsbRootPermissionHelper {
                 try {
                     process.destroy()
                 } catch (_: Exception) {
+                    // Процесс мог завершиться сам между таймаутом и попыткой убить.
                 }
                 Log.w(
                     TAG,

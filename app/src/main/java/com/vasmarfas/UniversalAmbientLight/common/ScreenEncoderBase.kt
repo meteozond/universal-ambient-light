@@ -8,6 +8,7 @@ import android.os.Process
 import android.util.Log
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
+import java.util.concurrent.atomic.AtomicBoolean
 
 abstract class ScreenEncoderBase(
     protected val mListener: HyperionThread.HyperionThreadListener,
@@ -16,7 +17,7 @@ abstract class ScreenEncoderBase(
     height: Int,
     protected val mDensity: Int,
     options: AppOptions,
-) {
+) : CaptureBackend {
 
     // Configuration (immutable after construction)
     protected val mFrameRate: Int = options.frameRate
@@ -39,6 +40,8 @@ abstract class ScreenEncoderBase(
 
     @Volatile
     private var mIsCapturing: Boolean = false
+
+    private val mClearing = AtomicBoolean(false)
 
     init {
         // Determine orientation
@@ -65,26 +68,33 @@ abstract class ScreenEncoderBase(
         }
     }
 
-    fun clearLights() {
-        Thread {
-            repeat(CLEAR_FRAMES) {
-                sleep(CLEAR_DELAY_MS.toLong())
-                mListener.clear()
-            }
-        }.start()
+    override fun clearLights() {
+        // Пока предыдущая серия чёрных кадров не доиграла, повторный вызов ничего не
+        // добавляет: получится несколько потоков, шлющих одно и то же одному клиенту.
+        if (!mClearing.compareAndSet(false, true)) return
+        startClearThread(disconnect = false, releaseFlag = true)
     }
 
     protected fun clearAndDisconnect() {
-        Thread {
-            repeat(CLEAR_FRAMES) {
-                sleep(CLEAR_DELAY_MS.toLong())
-                mListener.clear()
-            }
-            mListener.disconnect()
-        }.start()
+        // Отключение пропускать нельзя, даже если гашение уже идёт.
+        startClearThread(disconnect = true, releaseFlag = false)
     }
 
-    fun isCapturing(): Boolean {
+    private fun startClearThread(disconnect: Boolean, releaseFlag: Boolean) {
+        Thread({
+            try {
+                repeat(CLEAR_FRAMES) {
+                    sleep(CLEAR_DELAY_MS.toLong())
+                    mListener.clear()
+                }
+                if (disconnect) mListener.disconnect()
+            } finally {
+                if (releaseFlag) mClearing.set(false)
+            }
+        }, "clear-lights").start()
+    }
+
+    override fun isCapturing(): Boolean {
         return mIsCapturing
     }
 
@@ -92,7 +102,7 @@ abstract class ScreenEncoderBase(
         mIsCapturing = capturing
     }
 
-    fun sendStatus() {
+    override fun sendStatus() {
         mListener.sendStatus(mIsCapturing)
     }
 
@@ -121,10 +131,6 @@ abstract class ScreenEncoderBase(
             Thread.currentThread().interrupt()
         }
     }
-
-    abstract fun stopRecording()
-    abstract fun resumeRecording()
-    abstract fun setOrientation(orientation: Int)
 
     companion object {
         private const val TAG = "ScreenEncoderBase"

@@ -45,6 +45,8 @@ class AccessibilityCaptureService : AccessibilityService() {
             intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             if (intent != null) startActivity(intent)
         } catch (_: Exception) {
+            // Возврат в приложение — удобство, а не обязательный шаг: прошивка может
+            // запретить запуск активити из службы, работать это не мешает.
         }
     }
 
@@ -82,6 +84,8 @@ class AccessibilityCaptureService : AccessibilityService() {
             if (clickByKeywords(root, PAIR_KEYWORDS, "pair")) return
             clickByKeywords(root, WIRELESS_DEBUG_KEYWORDS, "wd")
         } catch (_: Exception) {
+            // Обход дерева чужого окна настроек: узлы исчезают прямо во время перебора,
+            // и это штатная ситуация — просто попробуем на следующем событии.
         }
     }
 
@@ -162,6 +166,8 @@ class AccessibilityCaptureService : AccessibilityService() {
                         try {
                             screenshot.hardwareBuffer.close()
                         } catch (_: Exception) {
+                            // Буфер обязателен к освобождению, но мог закрыться при ошибке
+                            // конвертации выше — она уже залогирована.
                         }
                     }
                     callback(copy)

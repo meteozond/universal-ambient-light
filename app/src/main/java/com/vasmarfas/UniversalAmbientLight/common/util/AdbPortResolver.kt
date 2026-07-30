@@ -79,6 +79,8 @@ object AdbPortResolver {
             Log.i(TAG, "Requesting adbd 'tcpip:$port' over TLS…")
             val stream = mgr.openStream("tcpip:$port")
             // Drain the short ack so adbd processes the request; it then restarts (stream closes).
+            // adbd перезапускается прямо во время этих вызовов, поэтому обрыв чтения и
+            // закрытия здесь — ожидаемый исход, а не ошибка.
             try {
                 stream.openInputStream().readBytes()
             } catch (_: Exception) {

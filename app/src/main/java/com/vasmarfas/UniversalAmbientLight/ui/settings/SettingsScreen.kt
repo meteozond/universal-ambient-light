@@ -1285,6 +1285,8 @@ fun AdbPairingDialog(
                     if (launch != null) try {
                         context.startActivity(launch)
                     } catch (_: Exception) {
+                        // Экран настроек стороннего приложения может отсутствовать или быть
+                        // закрыт прошивкой — тогда просто ничего не открываем.
                     }
                 }
             }
@@ -1508,12 +1510,13 @@ fun AdbPairingDialog(
                 }
 
                 // Always-visible status + progress, pinned below the scroll area.
-                if (status != null) {
+                val currentStatus = status
+                if (currentStatus != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = status!!,
+                        text = currentStatus,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (status!!.startsWith("✓"))
+                        color = if (currentStatus.startsWith("✓"))
                             MaterialTheme.colorScheme.primary
                         else
                             MaterialTheme.colorScheme.error

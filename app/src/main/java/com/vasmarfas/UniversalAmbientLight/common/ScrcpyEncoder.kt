@@ -57,7 +57,7 @@ class ScrcpyEncoder(
     private val mOptions: AppOptions,
     private val mAdbPort: Int = 5555,
     private val onFatalError: ((String) -> Unit)? = null,
-) {
+) : CaptureBackend {
     @Volatile
     private var mRunning = false
     @Volatile
@@ -84,20 +84,20 @@ class ScrcpyEncoder(
         startCapture()
     }
 
-    fun isCapturing(): Boolean = mCapturing
-    fun sendStatus() = mListener.sendStatus(mCapturing)
-    fun clearLights() {
+    override fun isCapturing(): Boolean = mCapturing
+    override fun sendStatus() = mListener.sendStatus(mCapturing)
+    override fun clearLights() {
         Thread { repeat(CLEAR_FRAMES) { Thread.sleep(CLEAR_DELAY_MS); mListener.clear() } }.start()
     }
 
-    fun stopRecording() = stopInternal(disconnect = true)
+    override fun stopRecording() = stopInternal(disconnect = true)
     fun stopRecordingKeepConnection() = stopInternal(disconnect = false)
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (!mRunning) startCapture()
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setOrientation(o: Int) {
+    override fun setOrientation(orientation: Int) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -303,6 +303,8 @@ class ScrcpyEncoder(
                         Log.i(TAG, "[server] $line")
                     }
                 } catch (_: Exception) {
+                    // Это только пересылка логов scrcpy-сервера в logcat: обрыв чтения
+                    // означает конец сессии и на захват кадров никак не влияет.
                 }
             }, "scrcpy-shell-reader").also { it.isDaemon = true; it.start() }
 
@@ -350,6 +352,7 @@ class ScrcpyEncoder(
                         try {
                             finalVideoStream.close()
                         } catch (_: Exception) {
+                            // Причина рестарта уже залогирована; поток закрываем best-effort.
                         }
                         break
                     }
@@ -405,7 +408,9 @@ class ScrcpyEncoder(
                         while (offset < frame.data.size && mRunning && sessionActive.get()) {
                             val idx = finalDecoder.dequeueInputBuffer(5_000L)
                             if (idx >= 0) {
-                                val buf = finalDecoder.getInputBuffer(idx)!!
+                                // Буфер по валидному индексу пропадает только если декодер уже
+                                // разваливается — тогда бросаем кадр и ждём следующий.
+                                val buf = finalDecoder.getInputBuffer(idx) ?: break
                                 buf.clear()
                                 val len = minOf(frame.data.size - offset, buf.remaining())
                                 buf.put(frame.data, offset, len)
@@ -561,6 +566,8 @@ class ScrcpyEncoder(
             codecOutThread?.interrupt()
             joinQuietly(codecInThread, 300)
             joinQuietly(codecOutThread, 300)
+            // Разбор уже останавливаемой сессии: декодер и потоки ADB могли отвалиться
+            // раньше нас, поэтому каждый шаг закрываем best-effort и идём дальше.
             try {
                 decoder?.stop(); decoder?.release()
             } catch (_: Exception) {
@@ -716,6 +723,8 @@ class ScrcpyEncoder(
             try {
                 thread.join(timeoutMs)
             } catch (_: Exception) {
+                // Ждём поток строго ограниченное время; прерывание ожидания не мешает
+                // остановке — дальше ресурсы всё равно закрываются.
             }
         }
 

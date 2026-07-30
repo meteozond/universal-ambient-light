@@ -2,10 +2,8 @@ package com.vasmarfas.UniversalAmbientLight.common.network
 
 import android.content.Context
 import android.util.Log
-import com.vasmarfas.UniversalAmbientLight.R
 import com.vasmarfas.UniversalAmbientLight.common.ScreenGrabberService
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
-import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -17,30 +15,26 @@ import java.util.concurrent.atomic.AtomicReference
 
 class HyperionThread(
     private val mCallback: ScreenGrabberService.HyperionThreadBroadcaster,
-    private val mHost: String,
-    private val mPort: Int,
-    private val mPriority: Int,
-    reconnect: Boolean,
-    delaySeconds: Int,
-    connectionType: String?,
     private val mContext: Context,
-    private val mBaudRate: Int,
-    wledColorOrder: String?,
-    private val mWledProtocol: String = "ddp",
-    private val mWledRgbw: Boolean = false,
-    private val mWledBrightness: Int = 255,
-    private val mAdalightProtocol: String = "ada",
-    private val mSmoothingEnabled: Boolean = true,
-    private val mSmoothingPreset: String = "balanced",
-    private val mSettlingTime: Int = 200,
-    private val mOutputDelayMs: Long = 80L,
-    private val mUpdateFrequency: Int = 25,
+    config: ConnectionConfig,
 ) : Thread(TAG) {
 
-    private val mReconnectDelayMs: Long = (delaySeconds * 1000).toLong()
-    private val mConnectionType: String = connectionType ?: "hyperion"
-    private val mWledColorOrder: String = wledColorOrder ?: "rgb"
-    private val mReconnectEnabled = AtomicBoolean(reconnect)
+    private val mHost: String = config.host
+    private val mPort: Int = config.port
+    private val mPriority: Int = config.priority
+    private val mBaudRate: Int = config.baudRate
+    private val mWledProtocol: String = config.wledProtocol
+    private val mAdalightProtocol: String = config.adalightProtocol
+    private val mSmoothingEnabled: Boolean = config.smoothingEnabled
+    private val mSmoothingPreset: String = config.smoothingPreset
+    private val mSettlingTime: Int = config.settlingTime
+    private val mOutputDelayMs: Long = config.outputDelayMs
+    private val mUpdateFrequency: Int = config.updateFrequency
+
+    private val mReconnectDelayMs: Long = (config.reconnectDelaySeconds * 1000).toLong()
+    private val mConnectionType: String = config.connectionType
+    private val mWledColorOrder: String = config.wledColorOrder
+    private val mReconnectEnabled = AtomicBoolean(config.reconnect)
     private val mConnected = AtomicBoolean(false)
     private val mStandbyPaused = AtomicBoolean(false)
     private val mClient = AtomicReference<HyperionClient?>()
@@ -248,7 +242,7 @@ class HyperionThread(
             throw IOException("Port out of range: $mPort (must be between 1 and 65535)")
         }
 
-        val host = mHost ?: "localhost"
+        val host = mHost
         return if ("wled".equals(mConnectionType, ignoreCase = true)) {
             // WLEDClient (context, host, port, priority, colorOrder, protocol, smoothingEnabled, smoothingPreset, settlingTime, outputDelayMs, updateFrequency)
             WLEDClient(
@@ -315,45 +309,6 @@ class HyperionThread(
         private const val FRAME_DURATION = -1
         private const val SHUTDOWN_TIMEOUT_MS = 100
         private const val KEEPALIVE_PERIOD_MS = 1000L
-
-        @JvmStatic
-        fun fromPreferences(
-            callback: ScreenGrabberService.HyperionThreadBroadcaster,
-            context: Context,
-        ): HyperionThread {
-            val prefs = Preferences(context)
-
-            val host = prefs.getString(R.string.pref_key_host, "")?.trim() ?: ""
-            val port = prefs.getInt(R.string.pref_key_port, 19400)
-            val priority = prefs.getInt(R.string.pref_key_priority, 100)
-            val reconnect = prefs.getBoolean(R.string.pref_key_reconnect, true)
-            val reconnectDelay = prefs.getInt(R.string.pref_key_reconnect_delay, 5)
-            val connectionType = prefs.getString(R.string.pref_key_connection_type, "hyperion")
-            val baudRate = prefs.getInt(R.string.pref_key_adalight_baudrate, 115200)
-            val wledColorOrder = prefs.getString(R.string.pref_key_wled_color_order, "rgb")
-
-            val wledProtocol = prefs.getString(R.string.pref_key_wled_protocol, "ddp") ?: "ddp"
-            val wledRgbw = prefs.getBoolean(R.string.pref_key_wled_rgbw, false)
-            val wledBrightness = prefs.getInt(R.string.pref_key_wled_brightness, 255)
-
-            val adalightProtocol =
-                prefs.getString(R.string.pref_key_adalight_protocol, "ada") ?: "ada"
-
-            val smoothingEnabled = prefs.getBoolean(R.string.pref_key_smoothing_enabled, false)
-            val smoothingPreset =
-                prefs.getString(R.string.pref_key_smoothing_preset, "off") ?: "off"
-            val settlingTime = prefs.getInt(R.string.pref_key_settling_time, 50)
-            val outputDelayMs =
-                prefs.getInt(R.string.pref_key_output_delay, 0).toLong() // Теперь в миллисекундах
-            val updateFrequency = prefs.getInt(R.string.pref_key_update_frequency, 60)
-
-            return HyperionThread(
-                callback, host, port, priority, reconnect, reconnectDelay,
-                connectionType, context, baudRate, wledColorOrder,
-                wledProtocol, wledRgbw, wledBrightness, adalightProtocol,
-                smoothingEnabled, smoothingPreset, settlingTime, outputDelayMs, updateFrequency
-            )
-        }
     }
 }
 

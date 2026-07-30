@@ -95,9 +95,10 @@ class WLEDClient(
 
     private fun startKeepAlive() {
         mKeepAliveExecutor.scheduleWithFixedDelay({
-            if (mPaused || !mConnected || mLastLeds == null) return@scheduleWithFixedDelay
+            val lastLeds = mLastLeds
+            if (mPaused || !mConnected || lastLeds == null) return@scheduleWithFixedDelay
             // Resend last frame to keep alive
-            sendLedData(mLastLeds!!)
+            sendLedData(lastLeds)
         }, 1000, 1000, TimeUnit.MILLISECONDS)
     }
 
@@ -118,8 +119,9 @@ class WLEDClient(
     private fun connect() {
         try {
             mAddress = InetAddress.getByName(mHost)
-            mSocket = DatagramSocket()
-            mSocket!!.soTimeout = 1000
+            val socket = DatagramSocket()
+            mSocket = socket
+            socket.soTimeout = 1000
             mConnected = true
             mSmoothing.start()
             if (logsEnabled) Log.d(TAG, "Connected to WLED at $mHost:$mPort")
@@ -140,6 +142,7 @@ class WLEDClient(
             try {
                 mSocket?.close()
             } catch (ignored: Exception) {
+                // Переподключение: старый сокет мог быть уже закрыт при обрыве сети.
             }
             mSocket = null
             mConnected = false
@@ -152,7 +155,7 @@ class WLEDClient(
     }
 
     override fun isConnected(): Boolean {
-        return mConnected && mSocket != null && !mSocket!!.isClosed
+        return mConnected && mSocket?.isClosed == false
     }
 
     /**
@@ -209,8 +212,9 @@ class WLEDClient(
         mSmoothing.stop()
         mKeepAliveExecutor.shutdownNow()
         mResumeExecutor.shutdownNow()
-        if (mSocket != null && !mSocket!!.isClosed) {
-            mSocket!!.close()
+        val socket = mSocket
+        if (socket != null && !socket.isClosed) {
+            socket.close()
             mSocket = null
         }
     }
@@ -261,11 +265,11 @@ class WLEDClient(
         }
 
         // Extract LED data reusing buffer
-        mLedDataBuffer =
-            LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
-        if (mLedDataBuffer!!.isEmpty()) return
+        val leds = LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
+        mLedDataBuffer = leds
+        if (leds.isEmpty()) return
 
-        mSmoothing.setTargetColors(mLedDataBuffer)
+        mSmoothing.setTargetColors(leds)
     }
 
     private fun sendLedData(leds: Array<ColorRgb>) {

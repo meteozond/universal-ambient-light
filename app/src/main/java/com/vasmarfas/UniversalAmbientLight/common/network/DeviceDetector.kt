@@ -130,6 +130,8 @@ class DeviceDetector {
                                     }
                                 }
                             } catch (e: Exception) {
+                                // Опрос чужого устройства в сети: любой сбой означает лишь,
+                                // что этот адрес нам не подходит.
                             }
                         }
                     } catch (e: Exception) {
@@ -189,6 +191,7 @@ class DeviceDetector {
                     )
                 }
             } catch (e: Exception) {
+                // Проба конкретного адреса: любой сбой означает, что Hyperion здесь нет.
             }
             return null
         }

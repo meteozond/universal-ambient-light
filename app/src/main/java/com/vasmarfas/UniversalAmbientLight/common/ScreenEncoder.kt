@@ -198,20 +198,23 @@ class ScreenEncoder(
 
     @Throws(MediaCodec.CodecException::class)
     private fun init() {
-        mCaptureThread = HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
-        mCaptureThread!!.start()
-        val looper = mCaptureThread!!.looper
+        val captureThread =
+            HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        mCaptureThread = captureThread
+        captureThread.start()
+        val looper = captureThread.looper
         if (looper == null) {
             Log.e(TAG, "Failed to get looper from capture thread")
             throw IllegalStateException("Capture thread looper is null")
         }
         mCaptureHandler = Handler(looper)
 
-        mImageReader = ImageReader.newInstance(
+        val imageReader = ImageReader.newInstance(
             mCaptureWidth, mCaptureHeight,
             PixelFormat.RGBA_8888,
             IMAGE_READER_IMAGES
         )
+        mImageReader = imageReader
 
         mMediaProjection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
@@ -228,7 +231,7 @@ class ScreenEncoder(
             TAG,
             mCaptureWidth, mCaptureHeight, mDensity,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
-            mImageReader!!.surface,
+            imageReader.surface,
             mDisplayCallback,
             mHandler
         )
@@ -249,10 +252,11 @@ class ScreenEncoder(
     }
 
     private fun captureFrame() {
+        val reader = mImageReader ?: return
         var img: Image? = null
         try {
             val startCap = System.nanoTime()
-            img = mImageReader!!.acquireLatestImage()
+            img = reader.acquireLatestImage()
             mTotalCaptureTime += (System.nanoTime() - startCap)
 
             if (img != null) {
@@ -323,8 +327,12 @@ class ScreenEncoder(
     ): ByteArray {
         val rgbSize = effWidth * effHeight * BYTES_PER_PIXEL_RGB
 
-        if (mRgbBuffer == null || mRgbBuffer!!.size < rgbSize) {
-            mRgbBuffer = ByteArray(rgbSize)
+        // Локальные ссылки на переиспользуемые буферы: обращение к полю в этом цикле
+        // стоит дороже, чем к локальной переменной, а кадр разбирается целиком.
+        var rgbBuffer = mRgbBuffer
+        if (rgbBuffer == null || rgbBuffer.size < rgbSize) {
+            rgbBuffer = ByteArray(rgbSize)
+            mRgbBuffer = rgbBuffer
         }
 
         val endY = height - by
@@ -334,37 +342,39 @@ class ScreenEncoder(
         if (pixelStride == BYTES_PER_PIXEL_RGBA && rowStride == width * BYTES_PER_PIXEL_RGBA) {
             val rowBytes = effWidth * BYTES_PER_PIXEL_RGBA
 
-            if (mRowBuffer == null || mRowBuffer!!.size < rowBytes) {
-                mRowBuffer = ByteArray(rowBytes)
+            var rowBuffer = mRowBuffer
+            if (rowBuffer == null || rowBuffer.size < rowBytes) {
+                rowBuffer = ByteArray(rowBytes)
+                mRowBuffer = rowBuffer
             }
 
             val savedPos = buffer.position()
 
             for (y in by until endY) {
                 buffer.position(y * rowStride + bx * BYTES_PER_PIXEL_RGBA)
-                buffer.get(mRowBuffer!!, 0, rowBytes)
+                buffer.get(rowBuffer, 0, rowBytes)
 
                 var i = 0
                 val unrollLimit = rowBytes - 15
                 while (i < unrollLimit) {
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 1]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 2]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 4]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 5]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 6]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 8]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 9]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 10]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 12]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 13]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 14]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 1]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 2]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 4]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 5]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 6]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 8]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 9]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 10]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 12]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 13]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 14]
                     i += 16
                 }
                 while (i < rowBytes) {
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 1]
-                    mRgbBuffer!![rgbIdx++] = mRowBuffer!![i + 2]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 1]
+                    rgbBuffer[rgbIdx++] = rowBuffer[i + 2]
                     i += BYTES_PER_PIXEL_RGBA
                 }
             }
@@ -375,14 +385,14 @@ class ScreenEncoder(
                 val rowOff = y * rowStride
                 for (x in bx until endX) {
                     val off = rowOff + x * pixelStride
-                    mRgbBuffer!![rgbIdx++] = buffer.get(off)
-                    mRgbBuffer!![rgbIdx++] = buffer.get(off + 1)
-                    mRgbBuffer!![rgbIdx++] = buffer.get(off + 2)
+                    rgbBuffer[rgbIdx++] = buffer.get(off)
+                    rgbBuffer[rgbIdx++] = buffer.get(off + 1)
+                    rgbBuffer[rgbIdx++] = buffer.get(off + 2)
                 }
             }
         }
 
-        return mRgbBuffer!!
+        return rgbBuffer
     }
 
     private fun sendAverageColor(
@@ -454,25 +464,19 @@ class ScreenEncoder(
         mCaptureHandler?.removeCallbacksAndMessages(null)
 
         // Release VirtualDisplay first to stop new frames being written to the surface
-        if (mVirtualDisplay != null) {
-            mVirtualDisplay!!.release()
-            mVirtualDisplay = null
-        }
+        mVirtualDisplay?.release()
+        mVirtualDisplay = null
 
         // Close ImageReader BEFORE quitting the handler looper.
         // ImageReader.close() touches native Binder-backed buffers; closing it after the
         // looper is gone can cause a deadlock in FinalizerDaemon (BinderInternal$GcWatcher
         // timed out) because the native finalizer cannot acquire the required Binder lock.
-        if (mImageReader != null) {
-            mImageReader!!.close()
-            mImageReader = null
-        }
+        mImageReader?.close()
+        mImageReader = null
 
-        if (mCaptureThread != null) {
-            mCaptureThread!!.quitSafely()
-            mCaptureThread = null
-            mCaptureHandler = null
-        }
+        mCaptureThread?.quitSafely()
+        mCaptureThread = null
+        mCaptureHandler = null
 
         mRgbBuffer = null
         mRowBuffer = null
@@ -535,18 +539,17 @@ class ScreenEncoder(
             return
         }
 
-        if (mImageReader != null) {
-            mImageReader!!.close()
-        }
+        mImageReader?.close()
 
-        mImageReader = ImageReader.newInstance(
+        val imageReader = ImageReader.newInstance(
             mCaptureWidth, mCaptureHeight,
             PixelFormat.RGBA_8888,
             IMAGE_READER_IMAGES
         )
+        mImageReader = imageReader
 
         try {
-            virtualDisplay.surface = mImageReader!!.surface
+            virtualDisplay.surface = imageReader.surface
         } catch (e: IllegalStateException) {
             Log.w(TAG, "setOrientation: surface assignment failed: ${e.message}")
             mImageReader?.close()

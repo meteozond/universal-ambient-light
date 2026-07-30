@@ -141,6 +141,7 @@ object UsbSerialPermissionHelper {
                 try {
                     ctx.unregisterReceiver(this)
                 } catch (_: Exception) {
+                    // Одноразовый приёмник: система могла снять его вместе с контекстом.
                 }
 
                 val deviceFromIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

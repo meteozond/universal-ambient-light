@@ -11,7 +11,6 @@ firebasePerfPlugin = "2.0.2"
 kotlin = "2.3.0"
 coreKtx = "1.17.0"
 appcompat = "1.7.1"
-localbroadcastmanager = "1.1.0"
 flatbuffers = "25.2.10"
 sunSecurityAndroid = "1.1"
 usbSerial = "3.7.0"
@@ -25,7 +24,6 @@ camerax = "1.4.1"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
-androidx-localbroadcastmanager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localbroadcastmanager" }
 app-update = { module = "com.google.android.play:app-update", version.ref = "appUpdateKtx" }
 app-update-ktx = { module = "com.google.android.play:app-update-ktx", version.ref = "appUpdateKtx" }
 conscrypt-android = { module = "org.conscrypt:conscrypt-android", version.ref = "conscryptAndroid" }

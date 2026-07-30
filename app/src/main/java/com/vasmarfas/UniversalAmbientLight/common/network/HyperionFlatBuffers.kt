@@ -28,12 +28,13 @@ class HyperionFlatBuffers(
             throw IllegalArgumentException("Port out of range: $port (must be between 1 and 65535)")
         }
 
-        mSocket = Socket()
-        mSocket!!.tcpNoDelay = true // Disable Nagle's algorithm for low latency
-        mSocket!!.sendBufferSize = 8192 // Smaller buffer for faster sends
-        mSocket!!.receiveBufferSize = 4096
-        mSocket!!.connect(InetSocketAddress(address, port), TIMEOUT)
-        mSocket!!.soTimeout = 10 // Very short timeout for non-blocking behavior
+        val socket = Socket()
+        mSocket = socket
+        socket.tcpNoDelay = true // Disable Nagle's algorithm for low latency
+        socket.sendBufferSize = 8192 // Smaller buffer for faster sends
+        socket.receiveBufferSize = 4096
+        socket.connect(InetSocketAddress(address, port), TIMEOUT)
+        socket.soTimeout = 10 // Very short timeout for non-blocking behavior
         register()
     }
 
@@ -50,13 +51,13 @@ class HyperionFlatBuffers(
     }
 
     override fun isConnected(): Boolean {
-        return mSocket != null && mSocket!!.isConnected
+        return mSocket?.isConnected == true
     }
 
     @Throws(IOException::class)
     override fun disconnect() {
         if (isConnected()) {
-            mSocket!!.close()
+            mSocket?.close()
         }
     }
 
@@ -115,7 +116,8 @@ class HyperionFlatBuffers(
 
     @Throws(IOException::class)
     private fun sendRequest(bb: ByteBuffer) {
-        if (isConnected()) {
+        val socket = mSocket
+        if (socket != null && socket.isConnected) {
             val size = bb.remaining()
             val header = ByteArray(4)
             header[0] = ((size shr 24) and 0xFF).toByte()
@@ -123,7 +125,7 @@ class HyperionFlatBuffers(
             header[2] = ((size shr 8) and 0xFF).toByte()
             header[3] = (size and 0xFF).toByte()
 
-            val output = mSocket!!.getOutputStream()
+            val output = socket.getOutputStream()
             output.write(header)
 
             val data = ByteArray(bb.remaining())
@@ -143,18 +145,19 @@ class HyperionFlatBuffers(
     private fun receiveReply() {
         // Non-blocking reply consumption to keep socket clean
         // This is called separately and doesn't block frame sending
+        val input = mSocket?.getInputStream() ?: return
         try {
-            while (mSocket!!.getInputStream().available() >= 4) {
+            while (input.available() >= 4) {
                 val header = ByteArray(4)
-                val read = mSocket!!.getInputStream().read(header, 0, 4)
+                val read = input.read(header, 0, 4)
                 if (read == 4) {
                     val size = ((header[0].toInt() and 0xFF) shl 24) or
                             ((header[1].toInt() and 0xFF) shl 16) or
                             ((header[2].toInt() and 0xFF) shl 8) or
                             (header[3].toInt() and 0xFF)
-                    if (size > 0 && mSocket!!.getInputStream().available() >= size) {
+                    if (size > 0 && input.available() >= size) {
                         val data = ByteArray(size)
-                        mSocket!!.getInputStream().read(data, 0, size)
+                        input.read(data, 0, size)
                     } else {
                         break // Not enough data yet, will consume later
                     }

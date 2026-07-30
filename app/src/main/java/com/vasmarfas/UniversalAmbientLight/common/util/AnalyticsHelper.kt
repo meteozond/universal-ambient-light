@@ -113,6 +113,8 @@ object AnalyticsHelper {
             crashlytics.setCustomKey("led_x", safeGetInt(prefs, R.string.pref_key_x_led))
             crashlytics.setCustomKey("led_y", safeGetInt(prefs, R.string.pref_key_y_led))
         } catch (_: Exception) {
+            // Телеметрия не должна влиять на работу приложения: Crashlytics может быть
+            // отключён или ещё не инициализирован, и это не повод падать.
         }
     }
 
@@ -592,6 +594,8 @@ object AnalyticsHelper {
         try {
             FirebaseCrashlytics.getInstance().setCustomKey("connection_protocol", protocol)
         } catch (_: Exception) {
+            // Телеметрия не должна влиять на работу приложения: Crashlytics может быть
+            // отключён или ещё не инициализирован, и это не повод падать.
         }
     }
 
@@ -610,6 +614,8 @@ object AnalyticsHelper {
         try {
             FirebaseCrashlytics.getInstance().setCustomKey("auto_reconnect_enabled", enabled)
         } catch (_: Exception) {
+            // Телеметрия не должна влиять на работу приложения: Crashlytics может быть
+            // отключён или ещё не инициализирован, и это не повод падать.
         }
     }
 
@@ -621,6 +627,8 @@ object AnalyticsHelper {
         try {
             FirebaseCrashlytics.getInstance().setCustomKey("smoothing_enabled", enabled)
         } catch (_: Exception) {
+            // Телеметрия не должна влиять на работу приложения: Crashlytics может быть
+            // отключён или ещё не инициализирован, и это не повод падать.
         }
     }
 }

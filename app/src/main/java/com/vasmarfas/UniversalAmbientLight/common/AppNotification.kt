@@ -42,9 +42,11 @@ class AppNotification(ctx: Context, manager: NotificationManager) {
     }
 
     fun setAction(code: Int, label: String?, intent: Intent?) {
+        // Без интента кнопка действия бессмысленна — оставляем уведомление без неё.
+        if (intent == null) return
         val pendingIntent = PendingIntent.getService(
             mContext, code,
-            intent!!, getPendingIntentFlags()
+            intent, getPendingIntentFlags()
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

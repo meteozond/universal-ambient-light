@@ -425,6 +425,7 @@ fun CameraPreviewView(
                 try {
                     boundProvider?.unbind(uc)
                 } catch (_: Exception) {
+                    // Экран закрывается; провайдер мог отвязать use case раньше нас.
                 }
             }
         }

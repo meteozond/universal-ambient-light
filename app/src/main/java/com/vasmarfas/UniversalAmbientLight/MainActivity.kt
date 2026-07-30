@@ -81,7 +81,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.navigation.compose.rememberNavController
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
@@ -181,7 +180,8 @@ class MainActivity : ComponentActivity() {
                 finishCaptureSession(reason)
             }
 
-            // Defer dialog/toast off LocalBroadcastManager's drain to avoid main-thread stalls.
+            // Диалог и toast откладываем: onReceive выполняется на главном потоке, и показ
+            // окна прямо здесь задерживает доставку остальных широковещаний.
             if (tclBlocked && !mTclWarningShown) {
                 mTclWarningShown = true
                 window.decorView.post {
@@ -220,8 +220,11 @@ class MainActivity : ComponentActivity() {
         appUpdateManager = AppUpdateManagerFactory.create(this)
         window.decorView.post { checkForUpdates() }
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(
-            mMessageReceiver, IntentFilter(ScreenGrabberService.BROADCAST_FILTER)
+        ContextCompat.registerReceiver(
+            this,
+            mMessageReceiver,
+            IntentFilter(ScreenGrabberService.BROADCAST_FILTER),
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
         checkForInstance()
 
@@ -355,12 +358,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(mMessageReceiver)
+        try {
+            unregisterReceiver(mMessageReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Context.unregisterReceiver, в отличие от LocalBroadcastManager, бросает
+            // исключение, если приёмник не был зарегистрирован; для нас это не ошибка.
+        }
 
         if (usbAttachReceiverRegistered) {
             try {
                 unregisterReceiver(usbAttachReceiver)
             } catch (_: Exception) {
+                // onPause и onDestroy могут снять приёмник оба; повторное снятие бросает
+                // IllegalArgumentException, и это не ошибка.
             }
             usbAttachReceiverRegistered = false
         }
@@ -372,6 +382,8 @@ class MainActivity : ComponentActivity() {
             try {
                 unregisterReceiver(usbAttachReceiver)
             } catch (_: Exception) {
+                // onPause и onDestroy могут снять приёмник оба; повторное снятие бросает
+                // IllegalArgumentException, и это не ошибка.
             }
             usbAttachReceiverRegistered = false
         }
@@ -502,8 +514,14 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        val projectionManager = mMediaProjectionManager
+        if (projectionManager == null) {
+            Log.e(TAG, "MediaProjectionManager is null; cannot request screen capture")
+            return
+        }
+
         try {
-            val captureIntent = mMediaProjectionManager!!.createScreenCaptureIntent()
+            val captureIntent = projectionManager.createScreenCaptureIntent()
             startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION)
         } catch (e: SecurityException) {
             Log.e(TAG, "Screen capture permission denied: " + e.message)

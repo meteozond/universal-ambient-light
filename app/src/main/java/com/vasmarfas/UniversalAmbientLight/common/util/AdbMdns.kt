@@ -85,6 +85,7 @@ object AdbMdns {
             try {
                 nsd.stopServiceDiscovery(discoveryListener)
             } catch (_: Exception) {
+                // Поиск мог завершиться сам (в том числе с ошибкой) — тогда останавливать нечего.
             }
         }
     }

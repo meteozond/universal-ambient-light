@@ -62,6 +62,8 @@ object AdbAutoPair {
                     try {
                         mgr.autoConnect(context, 8000)
                     } catch (_: Throwable) {
+                        // Сопряжение уже удалось — это лишь попытка сразу поднять
+                        // рабочее соединение, её провал не отменяет успех.
                     }
                     return Result.Paired
                 }

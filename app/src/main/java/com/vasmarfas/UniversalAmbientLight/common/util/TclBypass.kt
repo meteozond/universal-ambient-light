@@ -170,6 +170,7 @@ object TclBypass {
                             try {
                                 process.destroyForcibly()
                             } catch (_: Exception) {
+                                // Процесс мог завершиться сам между таймаутом и попыткой убить.
                             }
                             continue
                         }
@@ -178,6 +179,7 @@ object TclBypass {
                         try {
                             process?.destroyForcibly()
                         } catch (_: Exception) {
+                            // Команда и так не выполнилась; убираем процесс best-effort.
                         }
                     }
                 }

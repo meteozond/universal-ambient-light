@@ -15,7 +15,7 @@ class AccessibilityEncoder(
     private val mScreenWidth: Int,
     private val mScreenHeight: Int,
     private val mOptions: AppOptions,
-) {
+) : CaptureBackend {
     @Volatile
     private var mRunning = false
     @Volatile
@@ -55,13 +55,13 @@ class AccessibilityEncoder(
         startCapture()
     }
 
-    fun isCapturing(): Boolean = mCapturing
+    override fun isCapturing(): Boolean = mCapturing
 
-    fun sendStatus() {
+    override fun sendStatus() {
         mListener.sendStatus(mCapturing)
     }
 
-    fun clearLights() {
+    override fun clearLights() {
         Thread {
             repeat(CLEAR_FRAMES) {
                 Thread.sleep(CLEAR_DELAY_MS)
@@ -70,35 +70,40 @@ class AccessibilityEncoder(
         }.start()
     }
 
-    fun stopRecording() {
+    override fun stopRecording() {
         stopInternal(disconnect = true)
     }
 
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (!mRunning) {
-            if (mHandler == null) {
-                mThread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND)
-                mThread!!.start()
-                mHandler = Handler(mThread!!.looper)
+            var handler = mHandler
+            if (handler == null) {
+                val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND)
+                mThread = thread
+                thread.start()
+                handler = Handler(thread.looper)
+                mHandler = handler
             }
             mRunning = true
             mCapturing = true
-            mHandler!!.post(mCaptureRunnable)
+            handler.post(mCaptureRunnable)
         }
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setOrientation(orientation: Int) {
+    override fun setOrientation(orientation: Int) {
         // No-op
     }
 
     private fun startCapture() {
-        mThread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND)
-        mThread!!.start()
-        mHandler = Handler(mThread!!.looper)
+        val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND)
+        mThread = thread
+        thread.start()
+        val handler = Handler(thread.looper)
+        mHandler = handler
         mRunning = true
         mCapturing = true
-        mHandler!!.post(mCaptureRunnable)
+        handler.post(mCaptureRunnable)
     }
 
     private fun processBitmap(bitmap: Bitmap) {
@@ -133,26 +138,30 @@ class AccessibilityEncoder(
         val fh = bmp.height
         val pixelCount = fw * fh
 
-        if (mPixelBuffer == null || mPixelBuffer!!.size < pixelCount) {
-            mPixelBuffer = IntArray(pixelCount)
+        var pixelBuffer = mPixelBuffer
+        if (pixelBuffer == null || pixelBuffer.size < pixelCount) {
+            pixelBuffer = IntArray(pixelCount)
+            mPixelBuffer = pixelBuffer
         }
-        bmp.getPixels(mPixelBuffer!!, 0, fw, 0, 0, fw, fh)
+        bmp.getPixels(pixelBuffer, 0, fw, 0, 0, fw, fh)
 
         val rgbSize = pixelCount * 3
-        if (mRgbBuffer == null || mRgbBuffer!!.size < rgbSize) {
-            mRgbBuffer = ByteArray(rgbSize)
+        var rgbBuffer = mRgbBuffer
+        if (rgbBuffer == null || rgbBuffer.size < rgbSize) {
+            rgbBuffer = ByteArray(rgbSize)
+            mRgbBuffer = rgbBuffer
         }
 
         var dst = 0
         for (i in 0 until pixelCount) {
-            val pixel = mPixelBuffer!![i]
-            mRgbBuffer!![dst++] = ((pixel shr 16) and 0xFF).toByte()
-            mRgbBuffer!![dst++] = ((pixel shr 8) and 0xFF).toByte()
-            mRgbBuffer!![dst++] = (pixel and 0xFF).toByte()
+            val pixel = pixelBuffer[i]
+            rgbBuffer[dst++] = ((pixel shr 16) and 0xFF).toByte()
+            rgbBuffer[dst++] = ((pixel shr 8) and 0xFF).toByte()
+            rgbBuffer[dst++] = (pixel and 0xFF).toByte()
         }
 
-        ColorProcessor.processRgbData(mRgbBuffer!!, mOptions)
-        val cropped = mBorderCropper.applyForEncoder(mRgbBuffer!!, fw, fh, mOptions)
+        ColorProcessor.processRgbData(rgbBuffer, mOptions)
+        val cropped = mBorderCropper.applyForEncoder(rgbBuffer, fw, fh, mOptions)
         mListener.sendFrame(cropped.rgb, cropped.width, cropped.height)
 
         if (bmp != bitmap) {

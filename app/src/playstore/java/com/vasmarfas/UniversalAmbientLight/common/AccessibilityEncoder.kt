@@ -15,11 +15,11 @@ class AccessibilityEncoder(
     screenWidth: Int,
     screenHeight: Int,
     options: AppOptions,
-) {
-    fun isCapturing(): Boolean = false
-    fun sendStatus() {}
-    fun clearLights() {}
-    fun stopRecording() {}
-    fun resumeRecording() {}
-    fun setOrientation(orientation: Int) {}
+) : CaptureBackend {
+    override fun isCapturing(): Boolean = false
+    override fun sendStatus() {}
+    override fun clearLights() {}
+    override fun stopRecording() {}
+    override fun resumeRecording() {}
+    override fun setOrientation(orientation: Int) {}
 }

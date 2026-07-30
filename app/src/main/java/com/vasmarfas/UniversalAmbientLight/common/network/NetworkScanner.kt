@@ -137,12 +137,15 @@ class NetworkScanner {
 
                     // sort in such a way that ips close to the local ip will be tried first
                     Arrays.sort(ipsToTry) { lhs, rhs ->
+                        // Массив заполнен целиком циклом выше, null здесь означал бы поломку инварианта
+                        val lhsIp = checkNotNull(lhs) { "ipsToTry contains null" }
+                        val rhsIp = checkNotNull(rhs) { "ipsToTry contains null" }
                         val lhsNumberInSubnet = Integer.parseInt(
-                            lhs!!.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }
+                            lhsIp.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }
                                 .toTypedArray()[3]
                         )
                         val rhsNumberInSubnet = Integer.parseInt(
-                            rhs!!.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }
+                            rhsIp.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }
                                 .toTypedArray()[3]
                         )
                         val lhsDistance = abs(lhsNumberInSubnet - localNumberInSubnet)

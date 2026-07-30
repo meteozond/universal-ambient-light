@@ -23,7 +23,7 @@ class AdbEncoder(
     private val mScreenHeight: Int,
     private val mOptions: AppOptions,
     private val mAdbPort: Int = 5555,
-) {
+) : CaptureBackend {
     @Volatile
     private var mRunning = false
     @Volatile
@@ -59,13 +59,13 @@ class AdbEncoder(
         startCapture()
     }
 
-    fun isCapturing(): Boolean = mCapturing
+    override fun isCapturing(): Boolean = mCapturing
 
-    fun sendStatus() {
+    override fun sendStatus() {
         mListener.sendStatus(mCapturing)
     }
 
-    fun clearLights() {
+    override fun clearLights() {
         Thread {
             repeat(CLEAR_FRAMES) {
                 Thread.sleep(CLEAR_DELAY_MS)
@@ -74,37 +74,43 @@ class AdbEncoder(
         }.start()
     }
 
-    fun stopRecording() {
+    override fun stopRecording() {
         stopInternal(disconnect = true)
     }
 
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (!mRunning) {
-            if (mHandler == null) {
-                mThread = HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
-                mThread!!.start()
-                mHandler = Handler(mThread!!.looper)
+            var handler = mHandler
+            if (handler == null) {
+                val thread =
+                    HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                mThread = thread
+                thread.start()
+                handler = Handler(thread.looper)
+                mHandler = handler
             }
             mRunning = true
             mCapturing = true
-            mHandler!!.post { connectAdb() }
-            mHandler!!.post(mCaptureRunnable)
+            handler.post { connectAdb() }
+            handler.post(mCaptureRunnable)
         }
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setOrientation(orientation: Int) {
+    override fun setOrientation(orientation: Int) {
         // No-op
     }
 
     private fun startCapture() {
-        mThread = HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
-        mThread!!.start()
-        mHandler = Handler(mThread!!.looper)
+        val thread = HandlerThread(TAG, android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        mThread = thread
+        thread.start()
+        val handler = Handler(thread.looper)
+        mHandler = handler
         mRunning = true
         mCapturing = true
-        mHandler!!.post { connectAdb() }
-        mHandler!!.post(mCaptureRunnable)
+        handler.post { connectAdb() }
+        handler.post(mCaptureRunnable)
     }
 
     private fun connectAdb() {
@@ -128,13 +134,13 @@ class AdbEncoder(
     private fun captureFrame() {
         if (mDadb == null) {
             connectAdb()
-            if (mDadb == null) return
         }
+        val dadb = mDadb ?: return
 
         try {
             // Raw mode skips PNG encode on device + PNG decode here — much faster
             val cmd = if (mUseRawMode) "shell:screencap" else "shell:screencap -p"
-            val stream = mDadb!!.open(cmd)
+            val stream = dadb.open(cmd)
             val data = stream.source.readByteArray()
             stream.close()
 
@@ -167,6 +173,7 @@ class AdbEncoder(
             try {
                 mDadb?.close()
             } catch (_: Exception) {
+                // Соединение уже оборвано — переподключение всё равно создаст новое.
             }
             mDadb = null
         }
@@ -247,26 +254,30 @@ class AdbEncoder(
         val h = bitmap.height
         val pixelCount = w * h
 
-        if (mPixelBuffer == null || mPixelBuffer!!.size < pixelCount) {
-            mPixelBuffer = IntArray(pixelCount)
+        var pixelBuffer = mPixelBuffer
+        if (pixelBuffer == null || pixelBuffer.size < pixelCount) {
+            pixelBuffer = IntArray(pixelCount)
+            mPixelBuffer = pixelBuffer
         }
-        bitmap.getPixels(mPixelBuffer!!, 0, w, 0, 0, w, h)
+        bitmap.getPixels(pixelBuffer, 0, w, 0, 0, w, h)
 
         val rgbSize = pixelCount * 3
-        if (mRgbBuffer == null || mRgbBuffer!!.size < rgbSize) {
-            mRgbBuffer = ByteArray(rgbSize)
+        var rgbBuffer = mRgbBuffer
+        if (rgbBuffer == null || rgbBuffer.size < rgbSize) {
+            rgbBuffer = ByteArray(rgbSize)
+            mRgbBuffer = rgbBuffer
         }
 
         var dst = 0
         for (i in 0 until pixelCount) {
-            val pixel = mPixelBuffer!![i]
-            mRgbBuffer!![dst++] = ((pixel shr 16) and 0xFF).toByte()
-            mRgbBuffer!![dst++] = ((pixel shr 8) and 0xFF).toByte()
-            mRgbBuffer!![dst++] = (pixel and 0xFF).toByte()
+            val pixel = pixelBuffer[i]
+            rgbBuffer[dst++] = ((pixel shr 16) and 0xFF).toByte()
+            rgbBuffer[dst++] = ((pixel shr 8) and 0xFF).toByte()
+            rgbBuffer[dst++] = (pixel and 0xFF).toByte()
         }
 
-        ColorProcessor.processRgbData(mRgbBuffer!!, mOptions)
-        val cropped = mBorderCropper.applyForEncoder(mRgbBuffer!!, w, h, mOptions)
+        ColorProcessor.processRgbData(rgbBuffer, mOptions)
+        val cropped = mBorderCropper.applyForEncoder(rgbBuffer, w, h, mOptions)
         mListener.sendFrame(cropped.rgb, cropped.width, cropped.height)
     }
 
@@ -314,6 +325,7 @@ class AdbEncoder(
         try {
             mDadb?.close()
         } catch (e: Exception) {
+            // Остановка захвата: соединение могло отвалиться раньше нас.
         }
         mDadb = null
 

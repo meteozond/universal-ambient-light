@@ -62,6 +62,7 @@ class DeviceScanner(
             hasHyperionPort = socket.isConnected
             socket.close()
         } catch (e: Exception) {
+            // Перебор адресов подсети: недоступный хост — обычный результат сканирования.
         }
 
         try {
@@ -76,6 +77,7 @@ class DeviceScanner(
                 datagramSocket.close()
                 hasWledPort = true
             } catch (e: Exception) {
+                // Повторная проба второго порта WLED: недоступен — значит, устройства нет.
             }
         }
 

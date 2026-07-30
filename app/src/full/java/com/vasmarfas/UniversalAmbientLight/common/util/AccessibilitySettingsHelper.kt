@@ -32,7 +32,10 @@ fun openAccessibilitySettings(context: Context) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             return
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Прямой переход к экрану конкретной службы поддерживают не все прошивки —
+            // ниже открываем общий список специальных возможностей.
+        }
     }
 
     // Android 9–12: fragment args trick — scrolls & highlights our service in the list
@@ -52,5 +55,8 @@ fun openAccessibilitySettings(context: Context) {
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
-    } catch (_: Exception) {}
+    } catch (_: Exception) {
+        // Последняя попытка открыть настройки: если и её прошивка не поддерживает,
+        // пользователю остаётся дойти до них вручную.
+    }
 }

@@ -10,7 +10,7 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
 import androidx.core.app.TaskStackBuilder
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import androidx.core.content.ContextCompat
 import com.vasmarfas.UniversalAmbientLight.common.BootActivity
 import com.vasmarfas.UniversalAmbientLight.common.ScreenGrabberService
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
@@ -35,7 +35,12 @@ class QuickTileService : TileService() {
     }
 
     private val unregisterReceiverRunner = Runnable {
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(mMessageReceiver)
+        try {
+            unregisterReceiver(mMessageReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Context.unregisterReceiver, в отличие от LocalBroadcastManager, бросает
+            // исключение, если приёмник уже снят; для нас это не ошибка.
+        }
         mIsListening = false
     }
 
@@ -43,8 +48,11 @@ class QuickTileService : TileService() {
         super.onStartListening()
         mHandle.removeCallbacksAndMessages(null)
         if (!mIsListening) {
-            LocalBroadcastManager.getInstance(this).registerReceiver(
-                mMessageReceiver, IntentFilter(ScreenGrabberService.BROADCAST_FILTER)
+            ContextCompat.registerReceiver(
+                this,
+                mMessageReceiver,
+                IntentFilter(ScreenGrabberService.BROADCAST_FILTER),
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
             mIsListening = true
         }

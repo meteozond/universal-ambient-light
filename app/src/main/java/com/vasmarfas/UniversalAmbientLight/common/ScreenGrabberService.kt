@@ -22,8 +22,8 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.ServiceCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.vasmarfas.UniversalAmbientLight.R
+import com.vasmarfas.UniversalAmbientLight.common.network.ConnectionConfig
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
@@ -49,14 +49,9 @@ class ScreenGrabberService : Service() {
     private var mHorizontalLEDCount: Int = 0
     private var mVerticalLEDCount: Int = 0
     private var mSendAverageColor: Boolean = false
-    private var mScreenEncoder: ScreenEncoder? = null
-    private var mScreencapEncoder: ScreencapEncoder? = null
-    private var mAdbEncoder: AdbEncoder? = null
-    private var mScreenrecordEncoder: ScreenrecordEncoder? = null
-    private var mScrcpyEncoder: ScrcpyEncoder? = null
-    private var mAccessibilityEncoder: AccessibilityEncoder? = null
-    private var mCameraEncoder: CameraEncoder? = null
-    private var mMtkThalCaptureEncoder: MtkThalCaptureEncoder? = null
+    // Одновременно работает ровно один способ захвата: его выбирают startScreenRecord,
+    // startAlternativeRecord и startCameraCapture по настройкам и доступности на прошивке.
+    private var mActiveBackend: CaptureBackend? = null
     private var mCaptureSource: String = "screen" // "screen" or "camera"
     private var mNotificationManager: NotificationManager? = null
     private var mStartError: String? = null
@@ -134,41 +129,14 @@ class ScreenGrabberService : Service() {
                     // Reset WLED client data send block after EPERM error to resume sending on screen wake
                     mHyperionThread?.resetBlockedIfWLED()
 
-                    if (mCaptureSource == "camera") {
-                        // Camera mode: just resume camera if not capturing
-                        if (mCameraEncoder != null && !isCapturing) {
-                            mCameraEncoder!!.resumeRecording()
-                        }
-                    } else {
-                        // Resume whichever encoder is active
-                        if (!isCapturing) {
-                            if (mScreencapEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming screencap encoder")
-                                mScreencapEncoder!!.resumeRecording()
-                            } else if (mAdbEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming adb encoder")
-                                mAdbEncoder!!.resumeRecording()
-                            } else if (mScreenrecordEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming screenrecord encoder")
-                                mScreenrecordEncoder!!.resumeRecording()
-                            } else if (mScrcpyEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming scrcpy encoder")
-                                mScrcpyEncoder!!.resumeRecording()
-                            } else if (mAccessibilityEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming accessibility encoder")
-                                mAccessibilityEncoder!!.resumeRecording()
-                            } else if (mMtkThalCaptureEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming MTK THAL Capture encoder")
-                                mMtkThalCaptureEncoder!!.resumeRecording()
-                            } else if (mScreenEncoder != null) {
-                                if (DEBUG) Log.v(TAG, "Resuming media projection encoder")
-                                mScreenEncoder!!.resumeRecording()
-                            }
-                        }
-
-                        // If MediaProjection was stopped by system (sleep), resumeRecording() won't help.
-                        // Recreate encoder from saved projection data.
-                        if (!isCapturing && mScreenEncoder == null && mScreencapEncoder == null && mAdbEncoder == null && mScreenrecordEncoder == null && mScrcpyEncoder == null && mAccessibilityEncoder == null && mMtkThalCaptureEncoder == null) {
+                    if (!isCapturing) {
+                        val backend = mActiveBackend
+                        if (backend != null) {
+                            if (DEBUG) Log.v(TAG, "Resuming ${backend.javaClass.simpleName}")
+                            backend.resumeRecording()
+                        } else if (mCaptureSource != "camera") {
+                            // If MediaProjection was stopped by system (sleep), resumeRecording() won't help.
+                            // Recreate encoder from saved projection data.
                             if (DEBUG) Log.v(
                                 TAG,
                                 "No encoder active, trying restartEncoderFromSavedProjection"
@@ -191,13 +159,9 @@ class ScreenGrabberService : Service() {
                         acquireWakeLock()
                         acquireWifiLock()
                     }
-                    if (mScreenEncoder != null) mScreenEncoder!!.clearLights()
-                    if (mScreencapEncoder != null) mScreencapEncoder!!.clearLights()
-                    if (mAdbEncoder != null) mAdbEncoder!!.clearLights()
-                    if (mScreenrecordEncoder != null) mScreenrecordEncoder!!.clearLights()
-                    if (mScrcpyEncoder != null) mScrcpyEncoder!!.clearLights()
-                    if (mAccessibilityEncoder != null) mAccessibilityEncoder!!.clearLights()
-                    if (mMtkThalCaptureEncoder != null) mMtkThalCaptureEncoder!!.clearLights()
+                    // Камера снимает внешний телевизор, её кадры не зависят от экрана
+                    // устройства — гасим ленту только для экранных способов захвата.
+                    if (mActiveBackend !is CameraEncoder) mActiveBackend?.clearLights()
                     if (!standbyKeepalive && !isCamera) {
                         // Standby keepalive disabled: let the black frames flush, then stay silent until SCREEN_ON
                         mHandler?.removeCallbacks(mStandbyPauseRunnable)
@@ -207,16 +171,7 @@ class ScreenGrabberService : Service() {
 
                 Intent.ACTION_CONFIGURATION_CHANGED -> {
                     if (DEBUG) Log.v(TAG, "ACTION_CONFIGURATION_CHANGED intent received")
-                    if (mScreenEncoder != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        mScreenEncoder!!.setOrientation(resources.configuration.orientation)
-                    }
-                    mScreencapEncoder?.setOrientation(resources.configuration.orientation)
-                    mAdbEncoder?.setOrientation(resources.configuration.orientation)
-                    mScreenrecordEncoder?.setOrientation(resources.configuration.orientation)
-                    mScrcpyEncoder?.setOrientation(resources.configuration.orientation)
-                    mAccessibilityEncoder?.setOrientation(resources.configuration.orientation)
-                    mCameraEncoder?.setOrientation(resources.configuration.orientation)
-                    mMtkThalCaptureEncoder?.setOrientation(resources.configuration.orientation)
+                    mActiveBackend?.setOrientation(resources.configuration.orientation)
                 }
 
                 Intent.ACTION_SHUTDOWN, Intent.ACTION_REBOOT -> {
@@ -305,13 +260,28 @@ class ScreenGrabberService : Service() {
         val finalHost = host ?: "localhost"
         val finalPort = if (port > 0) port else 19400
 
-        mHyperionThread = HyperionThread(
-            mReceiver, finalHost, finalPort, priorityValue,
-            mReconnectEnabled, delay, mConnectionType, baseContext, baudRate, wledColorOrder,
-            wledProtocol, wledRgbw, wledBrightness, adalightProtocol,
-            smoothingEnabled, smoothingPreset, settlingTime, outputDelayMs, updateFrequency
+        val config = ConnectionConfig(
+            host = finalHost,
+            port = finalPort,
+            priority = priorityValue,
+            reconnect = mReconnectEnabled,
+            reconnectDelaySeconds = delay,
+            connectionType = mConnectionType,
+            baudRate = baudRate,
+            wledColorOrder = wledColorOrder ?: "rgb",
+            wledProtocol = wledProtocol,
+            wledRgbw = wledRgbw,
+            wledBrightness = wledBrightness,
+            adalightProtocol = adalightProtocol,
+            smoothingEnabled = smoothingEnabled,
+            smoothingPreset = smoothingPreset,
+            settlingTime = settlingTime,
+            outputDelayMs = outputDelayMs,
+            updateFrequency = updateFrequency
         )
-        mHyperionThread!!.start()
+        val thread = HyperionThread(mReceiver, baseContext, config)
+        mHyperionThread = thread
+        thread.start()
         mStartError = null
         return true
     }
@@ -339,6 +309,7 @@ class ScreenGrabberService : Service() {
                     val prefs = Preferences(this)
                     val method =
                         prefs.getString(R.string.pref_key_capture_method, "media_projection")
+                            ?: "media_projection"
 
                     val useMediaProjection = method == "media_projection"
                     val foregroundType = if (useMediaProjection)
@@ -371,7 +342,7 @@ class ScreenGrabberService : Service() {
                                 return START_STICKY
                             }
                         } else {
-                            startAlternativeRecord(method!!)
+                            startAlternativeRecord(method)
                         }
 
                         registerEventReceiver()
@@ -400,40 +371,13 @@ class ScreenGrabberService : Service() {
                 ACTION_STOP -> stopAllCapture()
                 ACTION_CLEAR -> {
                     // Send one black frame but keep connection
-                    if (mScreenEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (screen)")
-                        mScreenEncoder!!.clearLights()
-                    }
-                    if (mScreencapEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (screencap)")
-                        mScreencapEncoder!!.clearLights()
-                    }
-                    if (mAdbEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (adb)")
-                        mAdbEncoder!!.clearLights()
-                    }
-                    if (mScreenrecordEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (screenrecord)")
-                        mScreenrecordEncoder!!.clearLights()
-                    }
-                    if (mScrcpyEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (scrcpy)")
-                        mScrcpyEncoder!!.clearLights()
-                    }
-                    if (mAccessibilityEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (accessibility)")
-                        mAccessibilityEncoder!!.clearLights()
-                    }
-                    if (mCameraEncoder != null) {
-                        if (DEBUG) Log.v(TAG, "ACTION_CLEAR: clearing lights once (camera)")
-                        mCameraEncoder!!.clearLights()
-                    }
-                    if (mMtkThalCaptureEncoder != null) {
+                    val backend = mActiveBackend
+                    if (backend != null) {
                         if (DEBUG) Log.v(
                             TAG,
-                            "ACTION_CLEAR: clearing lights once (mtk_thal_capture)"
+                            "ACTION_CLEAR: clearing lights once (${backend.javaClass.simpleName})"
                         )
-                        mMtkThalCaptureEncoder!!.clearLights()
+                        backend.clearLights()
                     }
                 }
 
@@ -638,14 +582,15 @@ class ScreenGrabberService : Service() {
         val cornersStr = prefs.getString(R.string.pref_key_camera_corners, null)
         val corners = CameraEncoder.parseCornersString(cornersStr)
 
-        mCameraEncoder = CameraEncoder(
+        val encoder = CameraEncoder(
             this,
             thread.receiver,
             options,
             corners
         )
-        mCameraEncoder!!.start()
-        mCameraEncoder!!.sendStatus()
+        mActiveBackend = encoder
+        encoder.start()
+        encoder.sendStatus()
     }
 
     private fun maybeStandbyPauseOnConnect() {
@@ -666,11 +611,12 @@ class ScreenGrabberService : Service() {
         if (mWakeLock?.isHeld == true) return
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
-            mWakeLock = pm.newWakeLock(
+            val lock = pm.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "ScreenGrabberService::ScreenCapture"
             )
-            mWakeLock!!.acquire(60 * 60 * 1000L)
+            mWakeLock = lock
+            lock.acquire(60 * 60 * 1000L)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire wake lock", e)
         }
@@ -690,7 +636,7 @@ class ScreenGrabberService : Service() {
     }
 
     private fun acquireWifiLock() {
-        if (mWifiLock != null && mWifiLock!!.isHeld) return
+        if (mWifiLock?.isHeld == true) return
         try {
             val wm = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
             if (wm != null) {
@@ -722,7 +668,7 @@ class ScreenGrabberService : Service() {
         intent.putExtra(BROADCAST_TAG, false)
         intent.putExtra(BROADCAST_TCL_BLOCKED, true)
         intent.putExtra(BROADCAST_ERROR, "Foreground service blocked by device manufacturer")
-        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        sendStatusBroadcast(intent)
     }
 
     private fun haltStartup() {
@@ -742,10 +688,8 @@ class ScreenGrabberService : Service() {
 
         notifyActivity()
 
-        if (mHyperionThread != null) {
-            mHyperionThread!!.interrupt()
-            mHyperionThread = null
-        }
+        mHyperionThread?.interrupt()
+        mHyperionThread = null
 
         stopSelf()
     }
@@ -826,7 +770,7 @@ class ScreenGrabberService : Service() {
                 TAG,
                 "Creating encoder: " + metrics.widthPixels + "x" + metrics.heightPixels
             )
-            mScreenEncoder = ScreenEncoder(
+            val encoder = ScreenEncoder(
                 thread.receiver,
                 projection,
                 metrics.widthPixels,
@@ -834,7 +778,8 @@ class ScreenGrabberService : Service() {
                 metrics.densityDpi,
                 options
             )
-            mScreenEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
         } else {
             if (projection == null) {
                 Log.e(
@@ -874,14 +819,15 @@ class ScreenGrabberService : Service() {
             val accessibilityService = AccessibilityCaptureService.getInstance()
             if (accessibilityService != null) {
                 if (DEBUG) Log.v(TAG, "Creating Accessibility encoder")
-                mAccessibilityEncoder = AccessibilityEncoder(
+                val encoder = AccessibilityEncoder(
                     accessibilityService,
                     thread.receiver,
                     metrics.widthPixels,
                     metrics.heightPixels,
                     options
                 )
-                mAccessibilityEncoder!!.sendStatus()
+                mActiveBackend = encoder
+                encoder.sendStatus()
             } else {
                 Log.e(TAG, "Accessibility Service not connected!")
                 mStartError = "Accessibility Service not enabled"
@@ -893,7 +839,7 @@ class ScreenGrabberService : Service() {
         if (method == "adb_local") {
             val adbPort = prefs.getString(R.string.pref_key_adb_port, "5555")?.toIntOrNull() ?: 5555
             if (DEBUG) Log.v(TAG, "Creating ADB encoder on port $adbPort")
-            mAdbEncoder = AdbEncoder(
+            val encoder = AdbEncoder(
                 this.applicationContext,
                 thread.receiver,
                 metrics.widthPixels,
@@ -901,14 +847,15 @@ class ScreenGrabberService : Service() {
                 options,
                 adbPort
             )
-            mAdbEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
             return
         }
 
         if (method == "adb_stream") {
             val adbPort = prefs.getString(R.string.pref_key_adb_port, "5555")?.toIntOrNull() ?: 5555
             if (DEBUG) Log.v(TAG, "Creating screenrecord (H.264 stream) encoder on port $adbPort")
-            mScreenrecordEncoder = ScreenrecordEncoder(
+            val encoder = ScreenrecordEncoder(
                 this.applicationContext,
                 thread.receiver,
                 metrics.widthPixels,
@@ -920,14 +867,15 @@ class ScreenGrabberService : Service() {
                     haltStartup()
                 }
             )
-            mScreenrecordEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
             return
         }
 
         if (method == "scrcpy") {
             val adbPort = prefs.getString(R.string.pref_key_adb_port, "5555")?.toIntOrNull() ?: 5555
             if (DEBUG) Log.v(TAG, "Creating scrcpy encoder on port $adbPort")
-            mScrcpyEncoder = ScrcpyEncoder(
+            val encoder = ScrcpyEncoder(
                 this.applicationContext,
                 thread.receiver,
                 metrics.widthPixels,
@@ -939,13 +887,14 @@ class ScreenGrabberService : Service() {
                     haltStartup()
                 }
             )
-            mScrcpyEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
             return
         }
 
         if (method == "mtk_thal_capture") {
             if (DEBUG) Log.v(TAG, "Creating MTK THAL Capture encoder")
-            mMtkThalCaptureEncoder = MtkThalCaptureEncoder(
+            val encoder = MtkThalCaptureEncoder(
                 this.applicationContext,
                 thread.receiver,
                 metrics.widthPixels,
@@ -956,13 +905,14 @@ class ScreenGrabberService : Service() {
                     haltStartup()
                 }
             )
-            mMtkThalCaptureEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
             return
         }
 
         val useRoot = method == "screencap_root"
         if (DEBUG) Log.v(TAG, "Creating screencap encoder (root=$useRoot)")
-        mScreencapEncoder = ScreencapEncoder(
+        val encoder = ScreencapEncoder(
             this.applicationContext,
             thread.receiver,
             metrics.widthPixels,
@@ -974,7 +924,8 @@ class ScreenGrabberService : Service() {
                 haltStartup()
             }
         )
-        mScreencapEncoder!!.sendStatus()
+        mActiveBackend = encoder
+        encoder.sendStatus()
     }
 
     private fun saveProjectionData(resultCode: Int, extras: android.os.Bundle?) {
@@ -994,29 +945,31 @@ class ScreenGrabberService : Service() {
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private fun restartEncoderFromSavedProjection() {
         // In screencap mode there is no projection to restore — just resume the capture loop
-        if (mScreencapEncoder != null) {
-            mScreencapEncoder!!.resumeRecording()
+        val screencap = mActiveBackend as? ScreencapEncoder
+        if (screencap != null) {
+            screencap.resumeRecording()
             return
         }
         val resultCode = mProjectionResultCode ?: return
         val projectionIntent = buildProjectionDataIntent() ?: return
-        if (mMediaProjectionManager == null) return
-        if (mHyperionThread == null) return
+        val projectionManager = mMediaProjectionManager ?: return
+        val thread = mHyperionThread ?: return
 
         // Stop old encoder without disconnecting (important for WLED keepalive)
         try {
-            mScreenEncoder?.stopRecordingNoDisconnect()
+            (mActiveBackend as? ScreenEncoder)?.stopRecordingNoDisconnect()
         } catch (e: Exception) {
-            // no-op
+            // Систему уже могла забрать проекцию вместе с потрохами энкодера; нам важно
+            // только освободить место под новый, поэтому продолжаем в любом случае.
+            Log.w(TAG, "Failed to stop the previous encoder before restart", e)
         }
-        mScreenEncoder = null
+        mActiveBackend = null
 
         releaseResource()
 
         try {
-            val projection =
-                mMediaProjectionManager!!.getMediaProjection(resultCode, projectionIntent)
-            val window = getSystemService(WINDOW_SERVICE) as WindowManager
+            val projection = projectionManager.getMediaProjection(resultCode, projectionIntent)
+            val window = getSystemService(WINDOW_SERVICE) as? WindowManager
             if (projection == null || window == null) {
                 return
             }
@@ -1028,15 +981,16 @@ class ScreenGrabberService : Service() {
             val prefs = Preferences(this)
             val options = buildAppOptions(prefs)
 
-            mScreenEncoder = ScreenEncoder(
-                mHyperionThread!!.receiver,
+            val encoder = ScreenEncoder(
+                thread.receiver,
                 projection,
                 metrics.widthPixels,
                 metrics.heightPixels,
                 metrics.densityDpi,
                 options
             )
-            mScreenEncoder!!.sendStatus()
+            mActiveBackend = encoder
+            encoder.sendStatus()
         } catch (e: SecurityException) {
             // MediaProjection token may have expired or been revoked by system.
             // Don't crash from broadcast receiver, just log error and stop.
@@ -1053,79 +1007,27 @@ class ScreenGrabberService : Service() {
         mReconnectEnabled = false
         mNotificationManager?.cancel(NOTIFICATION_ID)
 
-        if (mScreenEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping screen encoder")
-            mScreenEncoder!!.stopRecording()
-            mScreenEncoder = null
-        }
-
-        if (mScreencapEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping screencap encoder")
-            mScreencapEncoder!!.stopRecording()
-            mScreencapEncoder = null
-        }
-
-        if (mAdbEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping adb encoder")
-            mAdbEncoder!!.stopRecording()
-            mAdbEncoder = null
-        }
-
-        if (mScreenrecordEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping screenrecord encoder")
-            mScreenrecordEncoder!!.stopRecording()
-            mScreenrecordEncoder = null
-        }
-
-        if (mScrcpyEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping scrcpy encoder")
-            mScrcpyEncoder!!.stopRecording()
-            mScrcpyEncoder = null
-        }
-
-        if (mAccessibilityEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping accessibility encoder")
-            mAccessibilityEncoder!!.stopRecording()
-            mAccessibilityEncoder = null
-        }
-
-        if (mCameraEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping camera encoder")
-            mCameraEncoder!!.stopRecording()
-            mCameraEncoder = null
-        }
-
-        if (mMtkThalCaptureEncoder != null) {
-            if (DEBUG) Log.v(TAG, "Stopping MTK THAL Capture encoder")
-            mMtkThalCaptureEncoder!!.stopRecording()
-            mMtkThalCaptureEncoder = null
+        val backend = mActiveBackend
+        if (backend != null) {
+            if (DEBUG) Log.v(TAG, "Stopping ${backend.javaClass.simpleName}")
+            backend.stopRecording()
+            mActiveBackend = null
         }
 
         releaseResource()
 
-        if (mHyperionThread != null) {
-            mHyperionThread!!.interrupt()
-            mHyperionThread = null
-        }
+        mHyperionThread?.interrupt()
+        mHyperionThread = null
     }
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private fun releaseResource() {
-        if (sMediaProjection != null) {
-            sMediaProjection!!.stop()
-            sMediaProjection = null
-        }
+        sMediaProjection?.stop()
+        sMediaProjection = null
     }
 
     val isCapturing: Boolean
-        get() = (mScreenEncoder != null && mScreenEncoder!!.isCapturing()) ||
-                (mScreencapEncoder != null && mScreencapEncoder!!.isCapturing()) ||
-                (mAdbEncoder != null && mAdbEncoder!!.isCapturing()) ||
-                (mScreenrecordEncoder != null && mScreenrecordEncoder!!.isCapturing()) ||
-                (mScrcpyEncoder != null && mScrcpyEncoder!!.isCapturing()) ||
-                (mAccessibilityEncoder != null && mAccessibilityEncoder!!.isCapturing()) ||
-                (mCameraEncoder != null && mCameraEncoder!!.isCapturing()) ||
-                (mMtkThalCaptureEncoder != null && mMtkThalCaptureEncoder!!.isCapturing())
+        get() = mActiveBackend?.isCapturing() == true
 
     val isCommunicating: Boolean
         get() = isCapturing && mHasConnected
@@ -1140,7 +1042,17 @@ class ScreenGrabberService : Service() {
                         if (mStartError != null) ", error=$mStartError" else ""
             )
         }
-        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        sendStatusBroadcast(intent)
+    }
+
+    /**
+     * Рассылает состояние сервиса своим же компонентам (активити и плитке быстрых настроек).
+     * Пакет проставляется явно, а приёмники регистрируются как RECEIVER_NOT_EXPORTED,
+     * поэтому широковещание не выходит за пределы приложения.
+     */
+    private fun sendStatusBroadcast(intent: Intent) {
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
     }
 
     private fun buildAppOptions(prefs: Preferences): AppOptions {
@@ -1225,6 +1137,8 @@ class ScreenGrabberService : Service() {
             Preferences.defaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(listener)
         } catch (_: Exception) {
+            // Сервис уже останавливается; если SharedPreferences успели уйти вместе с
+            // контекстом, снимать слушателя не с чего.
         }
         mPrefsListener = null
     }

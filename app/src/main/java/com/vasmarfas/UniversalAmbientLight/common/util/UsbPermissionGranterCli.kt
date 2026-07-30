@@ -33,7 +33,9 @@ fun main(args: Array<String>) {
 
         val stubClass = Class.forName("android.hardware.usb.IUsbManager\$Stub")
         val asInterface = stubClass.getMethod("asInterface", IBinder::class.java)
-        val usbService = asInterface.invoke(null, binder)!!
+        val usbService = checkNotNull(asInterface.invoke(null, binder)) {
+            "IUsbManager.Stub.asInterface returned null"
+        }
 
         // Get device list: void getDeviceList(out Bundle devices)
         val getDeviceList = usbService.javaClass.getMethod("getDeviceList", Bundle::class.java)

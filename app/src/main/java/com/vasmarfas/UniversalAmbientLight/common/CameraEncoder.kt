@@ -37,7 +37,7 @@ class CameraEncoder(
     private val listener: HyperionThread.HyperionThreadListener,
     private val options: AppOptions,
     corners: FloatArray, // 8 floats: tl_x, tl_y, tr_x, tr_y, br_x, br_y, bl_x, bl_y (normalized 0..1)
-) : LifecycleOwner {
+) : LifecycleOwner, CaptureBackend {
 
     // --- Lifecycle для CameraX ---
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -146,7 +146,7 @@ class CameraEncoder(
         }
     }
 
-    fun stopRecording() {
+    override fun stopRecording() {
         if (DEBUG) Log.i(TAG, "stopRecording")
         mRunning = false
         mCapturing = false
@@ -179,6 +179,8 @@ class CameraEncoder(
         mCapturing = false
 
         mainHandler.post {
+            // Отвязка CameraX и перевод жизненного цикла выполняются на пути остановки:
+            // провайдер мог быть уже отвязан активити, и падать из-за этого нельзя.
             try {
                 imageAnalysisUseCase?.let { cameraProvider?.unbind(it) }
                 imageAnalysisUseCase = null
@@ -195,20 +197,20 @@ class CameraEncoder(
         clearLights()
     }
 
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (DEBUG) Log.i(TAG, "resumeRecording")
         if (!mCapturing) {
             start()
         }
     }
 
-    fun isCapturing(): Boolean = mCapturing
+    override fun isCapturing(): Boolean = mCapturing
 
-    fun sendStatus() {
+    override fun sendStatus() {
         listener.sendStatus(mCapturing)
     }
 
-    fun clearLights() {
+    override fun clearLights() {
         Thread {
             repeat(CLEAR_FRAMES) {
                 sleep(CLEAR_DELAY_MS)
@@ -217,7 +219,7 @@ class CameraEncoder(
         }.start()
     }
 
-    fun setOrientation(orientation: Int) {
+    override fun setOrientation(orientation: Int) {
         // Camera rotation handled automatically via rotationDegrees in processFrame
     }
 
@@ -232,6 +234,7 @@ class CameraEncoder(
             try {
                 provider.unbind(it)
             } catch (_: Exception) {
+                // Use case мог быть отвязан раньше — важно лишь, что он не привязан сейчас.
             }
         }
 
@@ -303,21 +306,27 @@ class CameraEncoder(
 
         // 3. Read RGBA bytes from camera
         val totalBytes = rowStride * height
-        if (rgbaBytes == null || rgbaBytes!!.size < totalBytes) {
-            rgbaBytes = ByteArray(totalBytes)
+        var rgba = rgbaBytes
+        if (rgba == null || rgba.size < totalBytes) {
+            rgba = ByteArray(totalBytes)
+            rgbaBytes = rgba
         }
         buffer.rewind()
-        buffer.get(rgbaBytes!!, 0, min(totalBytes, buffer.remaining()))
+        buffer.get(rgba, 0, min(totalBytes, buffer.remaining()))
 
         // 4. Create source Bitmap (RGBA → ARGB conversion)
-        if (srcBitmap == null || srcBitmap!!.width != width || srcBitmap!!.height != height) {
-            srcBitmap?.recycle()
-            srcBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        var src = srcBitmap
+        if (src == null || src.width != width || src.height != height) {
+            src?.recycle()
+            src = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            srcBitmap = src
         }
 
         val totalPixels = width * height
-        if (pixelInts == null || pixelInts!!.size < totalPixels) {
-            pixelInts = IntArray(totalPixels)
+        var ints = pixelInts
+        if (ints == null || ints.size < totalPixels) {
+            ints = IntArray(totalPixels)
+            pixelInts = ints
         }
 
         // CameraX RGBA_8888: bytes are R, G, B, A
@@ -326,50 +335,53 @@ class CameraEncoder(
             val rowOff = y * rowStride
             for (x in 0 until width) {
                 val i = rowOff + x * 4
-                val r = rgbaBytes!![i].toInt() and 0xFF
-                val g = rgbaBytes!![i + 1].toInt() and 0xFF
-                val b = rgbaBytes!![i + 2].toInt() and 0xFF
-                pixelInts!![y * width + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                val r = rgba[i].toInt() and 0xFF
+                val g = rgba[i + 1].toInt() and 0xFF
+                val b = rgba[i + 2].toInt() and 0xFF
+                ints[y * width + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
-        srcBitmap!!.setPixels(pixelInts!!, 0, width, 0, 0, width, height)
+        src.setPixels(ints, 0, width, 0, 0, width, height)
 
         // 5. Perspective correction: srcPts → output rectangle
         perspectiveMatrix.setPolyToPoly(srcPts, 0, outputRect, 0, 4)
 
         // 6. Draw source bitmap with perspective correction into output
-        if (correctedBitmap == null || correctedBitmap!!.width != outputWidth || correctedBitmap!!.height != outputHeight) {
-            correctedBitmap?.recycle()
-            correctedBitmap =
-                Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+        var corrected = correctedBitmap
+        if (corrected == null || corrected.width != outputWidth || corrected.height != outputHeight) {
+            corrected?.recycle()
+            corrected = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+            correctedBitmap = corrected
         }
 
-        val canvas = Canvas(correctedBitmap!!)
+        val canvas = Canvas(corrected)
         canvas.drawColor(android.graphics.Color.BLACK)
-        canvas.drawBitmap(srcBitmap!!, perspectiveMatrix, paint)
+        canvas.drawBitmap(src, perspectiveMatrix, paint)
 
         // 7. Extract RGB from corrected bitmap
         val pixels = outPixels ?: IntArray(outputWidth * outputHeight).also { outPixels = it }
-        correctedBitmap!!.getPixels(pixels, 0, outputWidth, 0, 0, outputWidth, outputHeight)
+        corrected.getPixels(pixels, 0, outputWidth, 0, 0, outputWidth, outputHeight)
 
         val rgbSize = outputWidth * outputHeight * 3
-        if (rgbBuffer == null || rgbBuffer!!.size < rgbSize) {
-            rgbBuffer = ByteArray(rgbSize)
+        var rgb = rgbBuffer
+        if (rgb == null || rgb.size < rgbSize) {
+            rgb = ByteArray(rgbSize)
+            rgbBuffer = rgb
         }
 
         var idx = 0
         for (pixel in pixels) {
-            rgbBuffer!![idx++] = ((pixel shr 16) and 0xFF).toByte() // R
-            rgbBuffer!![idx++] = ((pixel shr 8) and 0xFF).toByte()  // G
-            rgbBuffer!![idx++] = (pixel and 0xFF).toByte()           // B
+            rgb[idx++] = ((pixel shr 16) and 0xFF).toByte() // R
+            rgb[idx++] = ((pixel shr 8) and 0xFF).toByte()  // G
+            rgb[idx++] = (pixel and 0xFF).toByte()           // B
         }
 
         // 8. Apply color processing
-        ColorProcessor.processRgbData(rgbBuffer!!, options)
+        ColorProcessor.processRgbData(rgb, options)
 
         // 9. Send frame (with optional letterbox crop)
         val cropped =
-            mBorderCropper.applyForEncoder(rgbBuffer!!, outputWidth, outputHeight, options)
+            mBorderCropper.applyForEncoder(rgb, outputWidth, outputHeight, options)
         lastSentWidth = cropped.width
         lastSentHeight = cropped.height
         listener.sendFrame(cropped.rgb, cropped.width, cropped.height)

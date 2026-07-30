@@ -121,25 +121,26 @@ class AdalightClient(
             throw IOException("No serial ports available on USB device")
         }
 
-        mPort = ports[0]
+        val port = ports[0]
+        mPort = port
 
         val connection = usbManager.openDevice(device)
             ?: throw IOException("Failed to open USB device. Please check USB connection and try again")
 
         try {
-            mPort!!.open(connection)
-            mPort!!.setParameters(mBaudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+            port.open(connection)
+            port.setParameters(mBaudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
 
             // Поднимаем DTR/RTS. Часть мостов (CP210x, ряд клонов CH340) молчит, пока линии не
             // подняты; на платах с авто-reset это ещё и перезагружает MCU, чтобы прошивка заново
             // отправила свой стартовый маркер "Ada" для хендшейка ниже. Best-effort: драйверы,
             // которые не поддерживают линию, кидают исключение — его игнорируем.
             try {
-                mPort!!.setDTR(true)
+                port.setDTR(true)
             } catch (_: Exception) {
             }
             try {
-                mPort!!.setRTS(true)
+                port.setRTS(true)
             } catch (_: Exception) {
             }
 
@@ -168,6 +169,8 @@ class AdalightClient(
             try {
                 connection.close()
             } catch (_: Exception) {
+                // Освобождаем порт после неудачного открытия: часть ресурсов могла и не
+                // создаться, но оставить занятым нельзя (см. комментарий выше).
             }
             mPort = null
             throw IOException(
@@ -223,14 +226,12 @@ class AdalightClient(
     override fun disconnect() {
         mSmoothing.stop()
         mConnected = false
-        if (mPort != null) {
-            try {
-                mPort!!.close()
-            } catch (e: IOException) {
-                Log.e(TAG, "Error closing port", e)
-            }
-            mPort = null
+        try {
+            mPort?.close()
+        } catch (e: IOException) {
+            Log.e(TAG, "Error closing port", e)
         }
+        mPort = null
     }
 
     @Throws(IOException::class)
@@ -282,9 +283,9 @@ class AdalightClient(
         }
 
         // Extract LED data reusing buffer
-        mLedDataBuffer =
-            LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
-        if (mLedDataBuffer!!.isEmpty()) return
+        val leds = LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
+        mLedDataBuffer = leds
+        if (leds.isEmpty()) return
 
         // Pass to smoothing
         mSmoothing.setTargetColors(mLedDataBuffer)

@@ -42,7 +42,7 @@ class ScreenrecordEncoder(
     private val mOptions: AppOptions,
     private val mAdbPort: Int = 5555,
     private val onFatalError: ((String) -> Unit)? = null,
-) {
+) : CaptureBackend {
     @Volatile
     private var mRunning = false
     @Volatile
@@ -72,22 +72,22 @@ class ScreenrecordEncoder(
         startCapture()
     }
 
-    fun isCapturing(): Boolean = mCapturing
-    fun sendStatus() = mListener.sendStatus(mCapturing)
+    override fun isCapturing(): Boolean = mCapturing
+    override fun sendStatus() = mListener.sendStatus(mCapturing)
 
-    fun clearLights() {
+    override fun clearLights() {
         Thread { repeat(CLEAR_FRAMES) { Thread.sleep(CLEAR_DELAY_MS); mListener.clear() } }.start()
     }
 
-    fun stopRecording() = stopInternal(disconnect = true)
+    override fun stopRecording() = stopInternal(disconnect = true)
     fun stopRecordingKeepConnection() = stopInternal(disconnect = false)
 
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (!mRunning) startCapture()
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setOrientation(o: Int) {
+    override fun setOrientation(orientation: Int) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -179,7 +179,9 @@ class ScreenrecordEncoder(
                         while (offset < chunk.size && mRunning) {
                             val idx = finalDecoder.dequeueInputBuffer(5_000L)
                             if (idx >= 0) {
-                                val buf = finalDecoder.getInputBuffer(idx)!!
+                                // Буфер по валидному индексу пропадает только если декодер уже
+                                // разваливается — тогда бросаем кадр и ждём следующий.
+                                val buf = finalDecoder.getInputBuffer(idx) ?: break
                                 buf.clear()
                                 val len = minOf(chunk.size - offset, buf.remaining())
                                 buf.put(chunk, offset, len)
@@ -195,6 +197,8 @@ class ScreenrecordEncoder(
                         try {
                             openedShell.close()
                         } catch (_: Exception) {
+                            // Причина сбоя уже залогирована выше; сессия всё равно
+                            // пересоздаётся, поэтому закрытие здесь best-effort.
                         }
                     }
                 } catch (_: InterruptedException) {
@@ -246,6 +250,8 @@ class ScreenrecordEncoder(
                         try {
                             openedShell.close()
                         } catch (_: Exception) {
+                            // Причина сбоя уже залогирована выше; сессия всё равно
+                            // пересоздаётся, поэтому закрытие здесь best-effort.
                         }
                     }
                 } catch (_: InterruptedException) {
@@ -281,6 +287,8 @@ class ScreenrecordEncoder(
                         try {
                             openedShell.close()
                         } catch (_: Exception) {
+                            // Причина сбоя уже залогирована выше; сессия всё равно
+                            // пересоздаётся, поэтому закрытие здесь best-effort.
                         }
                         break
                     }
@@ -357,6 +365,8 @@ class ScreenrecordEncoder(
             codecInThread?.interrupt()
             codecOutThread?.interrupt()
             // Wait for codec threads to notice the interruption / mRunning=false
+            // Всё, что ниже, — разбор уже останавливаемой сессии: любой ресурс мог быть
+            // закрыт раньше нас (потоками кодека или упавшим ADB), и это не ошибка.
             try {
                 Thread.sleep(150)
             } catch (_: Exception) {
@@ -407,6 +417,7 @@ class ScreenrecordEncoder(
                 return object : AdbShell {
                     override val input: java.io.InputStream = stream.openInputStream()
                     override fun close() {
+                        // Закрытие идемпотентно: поток мог быть уже оборван обрывом ADB.
                         try {
                             stream.close()
                         } catch (_: Exception) {
@@ -420,6 +431,7 @@ class ScreenrecordEncoder(
                 try {
                     mgr?.disconnect()
                 } catch (_: Throwable) {
+                    // Соединение и так не поднялось — гасим всё, что успело создаться.
                 }
                 throw java.io.IOException("ADB connect failed: ${e.message}", e)
             }
@@ -432,6 +444,7 @@ class ScreenrecordEncoder(
             return object : AdbShell {
                 override val input: java.io.InputStream = stream.source.inputStream()
                 override fun close() {
+                    // Закрытие идемпотентно: поток и соединение могли отвалиться раньше.
                     try {
                         stream.close()
                     } catch (_: Exception) {

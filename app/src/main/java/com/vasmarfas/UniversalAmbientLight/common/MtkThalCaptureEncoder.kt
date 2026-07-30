@@ -43,7 +43,7 @@ class MtkThalCaptureEncoder(
     private val mScreenHeight: Int,
     private val mOptions: AppOptions,
     private val onFatalError: ((String) -> Unit)? = null,
-) {
+) : CaptureBackend {
     @Volatile
     private var mRunning = false
     @Volatile
@@ -62,11 +62,13 @@ class MtkThalCaptureEncoder(
         calculateCaptureDimensions()
         // Defer slow work (APK extraction, su exec) to the worker so the constructor
         // — called from ScreenGrabberService on the main thread — returns immediately.
-        mThread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
-        mHandler = Handler(mThread!!.looper)
+        val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
+        mThread = thread
+        val handler = Handler(thread.looper)
+        mHandler = handler
         mRunning = true
         mCapturing = true
-        mHandler!!.post { startCaptureOnWorker() }
+        handler.post { startCaptureOnWorker() }
     }
 
     private fun calculateCaptureDimensions() {
@@ -148,6 +150,7 @@ class MtkThalCaptureEncoder(
                 try {
                     chmod.destroyForcibly()
                 } catch (_: Exception) {
+                    // Процесс мог завершиться сам между таймаутом и попыткой его убить.
                 }
                 Log.w(TAG, "chmod dma_heap timed out")
             }
@@ -178,6 +181,7 @@ class MtkThalCaptureEncoder(
             try {
                 mProcess?.destroy()
             } catch (_: Exception) {
+                // Гонка со stopRecording: процесс мог быть уже убит там.
             }
             mProcess = null
             return
@@ -243,6 +247,8 @@ class MtkThalCaptureEncoder(
                     try {
                         process.destroy()
                     } catch (_: Exception) {
+                        // Проверка доступности не удалась по таймауту; процесс мог
+                        // завершиться сам, пока мы его убивали.
                     }
                     Log.w(
                         TAG,
@@ -326,6 +332,7 @@ class MtkThalCaptureEncoder(
                     val stderr = process.errorStream.bufferedReader().readText()
                     if (stderr.isNotEmpty()) Log.e(TAG, "Process stderr: $stderr")
                 } catch (_: Exception) {
+                    // Это попытка дочитать причину сбоя для лога; сама ошибка уже записана выше.
                 }
             }
         } catch (e: Exception) {
@@ -335,13 +342,13 @@ class MtkThalCaptureEncoder(
         mCapturing = false
     }
 
-    fun isCapturing(): Boolean = mCapturing
+    override fun isCapturing(): Boolean = mCapturing
 
-    fun sendStatus() {
+    override fun sendStatus() {
         mListener.sendStatus(mCapturing)
     }
 
-    fun clearLights() {
+    override fun clearLights() {
         Thread {
             repeat(CLEAR_FRAMES) {
                 Thread.sleep(CLEAR_DELAY_MS)
@@ -350,23 +357,26 @@ class MtkThalCaptureEncoder(
         }.start()
     }
 
-    fun stopRecording() {
+    override fun stopRecording() {
         stopInternal(disconnect = true)
     }
 
-    fun resumeRecording() {
+    override fun resumeRecording() {
         if (mRunning) return
-        if (mHandler == null) {
-            mThread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
-            mHandler = Handler(mThread!!.looper)
+        var handler = mHandler
+        if (handler == null) {
+            val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
+            mThread = thread
+            handler = Handler(thread.looper)
+            mHandler = handler
         }
         mRunning = true
         mCapturing = true
-        mHandler!!.post { restartCaptureOnWorker() }
+        handler.post { restartCaptureOnWorker() }
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setOrientation(orientation: Int) {
+    override fun setOrientation(orientation: Int) {
         // Hardware capture handles orientation at the pipeline level
     }
 
@@ -375,6 +385,7 @@ class MtkThalCaptureEncoder(
         mCapturing = false
 
         mProcess?.let { proc ->
+            // Остановка: root-процесс мог уже умереть сам, закрываем и убиваем best-effort.
             try {
                 proc.outputStream.close()
             } catch (_: Exception) {

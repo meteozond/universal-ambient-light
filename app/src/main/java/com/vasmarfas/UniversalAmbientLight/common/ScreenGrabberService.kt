@@ -11,12 +11,10 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
@@ -36,9 +34,8 @@ class ScreenGrabberService : Service() {
     private var mForegroundFailed = false
     private var mForegroundStarted = false
     private var mTclBlocked = false
-    private var mWakeLock: PowerManager.WakeLock? = null
-    private var mWifiLock: WifiManager.WifiLock? = null
     private var mHandler: Handler? = null
+    private var mStandby: StandbyController? = null
 
     private var mReconnectEnabled = false
     private var mHasConnected = false
@@ -66,12 +63,6 @@ class ScreenGrabberService : Service() {
     private var mPrefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? =
         null
 
-    // Delayed so the black "clear" frames flush to the device before output goes silent.
-    private val mStandbyPauseRunnable = Runnable {
-        if (DEBUG) Log.v(TAG, "Standby: pausing all LED output")
-        mHyperionThread?.pauseSending()
-    }
-
     private val mReceiver = object : HyperionThreadBroadcaster {
         override fun onConnected() {
             if (DEBUG) Log.d(TAG, "Connected to Hyperion server")
@@ -82,6 +73,15 @@ class ScreenGrabberService : Service() {
             notifyActivity()
             // Service may have been (re)started while the screen is already off (e.g. USB re-attach in standby)
             maybeStandbyPauseOnConnect()
+        }
+
+        /** Гасим вывод, только если экран действительно погашен и keepalive выключен. */
+        private fun maybeStandbyPauseOnConnect() {
+            if (mCaptureSource == "camera") return
+            if (Preferences(this@ScreenGrabberService).getBoolean(R.string.pref_key_standby_keepalive)) return
+            val standby = mStandby ?: return
+            if (!standby.isScreenOff()) return
+            standby.schedulePause()
         }
 
         override fun onConnectionError(errorID: Int, error: String?) {
@@ -119,11 +119,11 @@ class ScreenGrabberService : Service() {
             when (Objects.requireNonNull(intent.action)) {
                 Intent.ACTION_SCREEN_ON -> {
                     if (DEBUG) Log.v(TAG, "ACTION_SCREEN_ON intent received")
-                    releaseWakeLock()
-                    releaseWifiLock()
+                    mStandby?.releaseWakeLock()
+                    mStandby?.releaseWifiLock()
 
                     // Resume LED output if it was paused for standby
-                    mHandler?.removeCallbacks(mStandbyPauseRunnable)
+                    mStandby?.cancelPause()
                     mHyperionThread?.resumeSending()
 
                     // Reset WLED client data send block after EPERM error to resume sending on screen wake
@@ -156,16 +156,15 @@ class ScreenGrabberService : Service() {
                     if (standbyKeepalive || isCamera) {
                         // On some TVs CPU goes into deep sleep and keepalive threads stop sending packets,
                         // causing WLED to revert to default effect after ~10s. PARTIAL_WAKE_LOCK keeps CPU alive for keepalive.
-                        acquireWakeLock()
-                        acquireWifiLock()
+                        mStandby?.acquireWakeLock()
+                        mStandby?.acquireWifiLock()
                     }
                     // Камера снимает внешний телевизор, её кадры не зависят от экрана
                     // устройства — гасим ленту только для экранных способов захвата.
                     if (mActiveBackend !is CameraEncoder) mActiveBackend?.clearLights()
                     if (!standbyKeepalive && !isCamera) {
                         // Standby keepalive disabled: let the black frames flush, then stay silent until SCREEN_ON
-                        mHandler?.removeCallbacks(mStandbyPauseRunnable)
-                        mHandler?.postDelayed(mStandbyPauseRunnable, STANDBY_PAUSE_DELAY_MS)
+                        mStandby?.schedulePause()
                     }
                 }
 
@@ -185,7 +184,12 @@ class ScreenGrabberService : Service() {
     override fun onCreate() {
         sInstanceRunning = true
         mNotificationManager = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
-        mHandler = Handler(Looper.getMainLooper())
+        val handler = Handler(Looper.getMainLooper())
+        mHandler = handler
+        mStandby = StandbyController(this, handler) {
+            if (DEBUG) Log.v(TAG, "Standby: pausing all LED output")
+            mHyperionThread?.pauseSending()
+        }
 
         // Try shell bypass on startup for TCL devices
         if (TclBypass.isTclDevice() || TclBypass.isRestrictedManufacturer()) {
@@ -323,7 +327,7 @@ class ScreenGrabberService : Service() {
                     val isPrepared = prepared()
                     if (isPrepared) {
                         if (!foregroundStarted && mTclBlocked) {
-                            acquireWakeLock()
+                            mStandby?.acquireWakeLock()
                         }
 
                         if (useMediaProjection) {
@@ -358,7 +362,7 @@ class ScreenGrabberService : Service() {
                     val isPrepared = prepared()
                     if (isPrepared) {
                         if (!foregroundStarted && mTclBlocked) {
-                            acquireWakeLock()
+                            mStandby?.acquireWakeLock()
                         }
 
                         startCameraCapture()
@@ -404,9 +408,7 @@ class ScreenGrabberService : Service() {
         unregisterColorPrefsListener()
         mActiveOptions = null
 
-        mHandler?.removeCallbacks(mStandbyPauseRunnable)
-        releaseWakeLock()
-        releaseWifiLock()
+        mStandby?.releaseAll()
         stopAllCapture()
         stopForeground(true)
         mForegroundStarted = false
@@ -593,75 +595,6 @@ class ScreenGrabberService : Service() {
         encoder.sendStatus()
     }
 
-    private fun maybeStandbyPauseOnConnect() {
-        if (mCaptureSource == "camera") return
-        if (Preferences(this).getBoolean(R.string.pref_key_standby_keepalive)) return
-        try {
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
-            if (pm.isInteractive) return
-        } catch (e: Exception) {
-            return
-        }
-        mHandler?.removeCallbacks(mStandbyPauseRunnable)
-        mHandler?.postDelayed(mStandbyPauseRunnable, STANDBY_PAUSE_DELAY_MS)
-    }
-
-    private fun acquireWakeLock() {
-        // Re-acquire if the previous lock already timed out on its own (standby longer than the timeout)
-        if (mWakeLock?.isHeld == true) return
-        try {
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
-            val lock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "ScreenGrabberService::ScreenCapture"
-            )
-            mWakeLock = lock
-            lock.acquire(60 * 60 * 1000L)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to acquire wake lock", e)
-        }
-    }
-
-    private fun releaseWakeLock() {
-        val lock = mWakeLock ?: return
-        try {
-            if (lock.isHeld) {
-                lock.release()
-                Log.i(TAG, "Wake lock released")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to release wake lock", e)
-        }
-        mWakeLock = null
-    }
-
-    private fun acquireWifiLock() {
-        if (mWifiLock?.isHeld == true) return
-        try {
-            val wm = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
-            if (wm != null) {
-                // HighPerf to prevent UDP throttling during idle (helps on some Android TV firmwares)
-                mWifiLock = wm.createWifiLock(
-                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                    "ScreenGrabberService::Wifi"
-                )
-                mWifiLock?.setReferenceCounted(false)
-                mWifiLock?.acquire()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to acquire wifi lock", e)
-        }
-    }
-
-    private fun releaseWifiLock() {
-        val lock = mWifiLock ?: return
-        try {
-            if (lock.isHeld) lock.release()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to release wifi lock", e)
-        }
-        mWifiLock = null
-    }
 
     private fun notifyTclBlocked() {
         val intent = Intent(BROADCAST_FILTER)
@@ -1169,10 +1102,6 @@ class ScreenGrabberService : Service() {
         const val EXTRA_RESULT_DATA = BASE + "EXTRA_RESULT_DATA"
         private const val NOTIFICATION_ID = 1
         private const val NOTIFICATION_EXIT_INTENT_ID = 2
-
-        // Delay before silencing output on SCREEN_OFF: covers the 5 clear frames (~500ms)
-        // plus smoothing settling/output delay so the strip is reliably black first.
-        private const val STANDBY_PAUSE_DELAY_MS = 1500L
 
         private var sMediaProjection: MediaProjection? = null
 

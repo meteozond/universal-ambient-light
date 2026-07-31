@@ -17,9 +17,8 @@ data class ConnectionConfig(
     val baudRate: Int,
     val wledColorOrder: String,
     val wledProtocol: String = "ddp",
-    /** Читается из настроек, но WLEDClient этот параметр пока не принимает. */
     val wledRgbw: Boolean = false,
-    /** Читается из настроек, но WLEDClient этот параметр пока не принимает. */
+    /** 0..255; 255 — отправлять цвета как есть. */
     val wledBrightness: Int = 255,
     val adalightProtocol: String = "ada",
     val smoothingEnabled: Boolean = true,

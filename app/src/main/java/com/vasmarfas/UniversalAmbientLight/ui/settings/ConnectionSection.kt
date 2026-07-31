@@ -1,0 +1,235 @@
+package com.vasmarfas.UniversalAmbientLight.ui.settings
+
+import android.content.Context
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
+import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
+import com.vasmarfas.UniversalAmbientLight.R
+
+/**
+ * Группа «Подключение»: тип контроллера, адрес, порт и зависящие от протокола настройки.
+ */
+@Composable
+internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsScreenState) {
+    val context = LocalContext.current
+    SettingsGroup(title = stringResource(R.string.pref_group_connection)) {
+
+        key(state.connectionType) {
+            ListPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_connection_type,
+                title = stringResource(R.string.pref_title_connection_type),
+                entriesRes = R.array.pref_list_connection_type,
+                entryValuesRes = R.array.pref_list_connection_type_values,
+                recomposeKey = state.connectionType,
+                onValueChange = { newType ->
+                    val oldType = state.connectionType
+                    state.connectionType = newType
+                    AnalyticsHelper.logProtocolChanged(context, oldType, newType)
+                    AnalyticsHelper.logSettingChanged(context, "connection_type", newType)
+                    AnalyticsHelper.updateProtocolProperty(context, newType)
+                    val defaultPort = when (newType) {
+                        "hyperion" -> "19400"
+                        "wled" -> if (state.wledProtocol == "ddp") "4048" else "19446"
+                        else -> null
+                    }
+                    if (defaultPort != null) {
+                        prefs.putString(R.string.pref_key_port, defaultPort)
+                    }
+                }
+            )
+        }
+
+        val isNetwork = state.connectionType == "hyperion" || state.connectionType == "wled"
+        val isAdalight = state.connectionType == "adalight"
+        val isWled = state.connectionType == "wled"
+        val isHyperion = state.connectionType == "hyperion"
+
+        if (isNetwork) {
+            ClickablePreference(
+                title = stringResource(R.string.scanner_scan_devices),
+                summary = stringResource(R.string.scanner_description),
+                onClick = { state.showScanDialog = true }
+            )
+
+            key(state.connectionType) {
+                EditTextPreference(
+                    prefs = prefs,
+                    keyRes = R.string.pref_key_host,
+                    title = stringResource(R.string.pref_title_host),
+                    summaryProvider = { it },
+                    recomposeKey = state.currentHost,
+                    onValueChange = { newHost ->
+                        state.currentHost = newHost
+                        AnalyticsHelper.logHostChanged(context, newHost)
+                        AnalyticsHelper.logSettingChanged(context, "host", newHost)
+                    }
+                )
+            }
+
+            // Show WLED protocol selector between host and port for WLED connections
+            if (isWled) {
+                key(state.wledProtocol) {
+                    ListPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_wled_protocol,
+                        title = stringResource(R.string.pref_title_wled_protocol),
+                        entriesRes = R.array.pref_list_wled_protocol,
+                        entryValuesRes = R.array.pref_list_wled_protocol_values,
+                        onValueChange = { newProtocol ->
+                            state.wledProtocol
+                            state.wledProtocol = newProtocol
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "wled_protocol",
+                                newProtocol
+                            )
+                            // Auto-set port when WLED protocol changes
+                            val defaultPort = if (newProtocol == "ddp") "4048" else "19446"
+                            prefs.putString(R.string.pref_key_port, defaultPort)
+                            state.currentPort = defaultPort
+                        }
+                    )
+                }
+            }
+
+            // Use key to force recomposition when connection type or WLED protocol changes
+            key("${state.connectionType}_${state.wledProtocol}") {
+                EditTextPreference(
+                    prefs = prefs,
+                    keyRes = R.string.pref_key_port,
+                    title = stringResource(R.string.pref_title_port),
+                    summaryProvider = { it },
+                    keyboardType = KeyboardType.Number,
+                    recomposeKey = state.currentPort,
+                    onValueChange = { newPort ->
+                        state.currentPort = newPort
+                        val portInt = newPort.toIntOrNull() ?: 0
+                        AnalyticsHelper.logPortChanged(context, portInt)
+                        AnalyticsHelper.logSettingChanged(context, "port", newPort)
+                    }
+                )
+            }
+            if (isHyperion) {
+                EditTextPreference(
+                    prefs = prefs,
+                    keyRes = R.string.pref_key_priority,
+                    title = stringResource(R.string.pref_title_priority),
+                    summaryProvider = { it },
+                    keyboardType = KeyboardType.Number,
+                    onValueChange = { newPriority ->
+                        val priorityInt = newPriority.toIntOrNull() ?: 100
+                        AnalyticsHelper.logPriorityChanged(context, priorityInt)
+                        AnalyticsHelper.logSettingChanged(context, "priority", newPriority)
+                    }
+                )
+                CheckBoxPreference(
+                    prefs = prefs,
+                    keyRes = R.string.pref_key_reconnect,
+                    title = stringResource(R.string.pref_title_reconnect),
+                    onValueChange = { enabled ->
+                        state.reconnectEnabled = enabled
+                        AnalyticsHelper.logAutoReconnectEnabled(context, enabled)
+                        AnalyticsHelper.logSettingChanged(
+                            context,
+                            "reconnect",
+                            enabled.toString()
+                        )
+                        AnalyticsHelper.updateAutoReconnectProperty(context, enabled)
+                    }
+                )
+                if (state.reconnectEnabled) {
+                    EditTextPreference(
+                        prefs = prefs,
+                        keyRes = R.string.pref_key_reconnect_delay,
+                        title = stringResource(R.string.pref_title_reconnect_delay),
+                        summaryProvider = { it },
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { newDelay ->
+                            val delayInt = newDelay.toIntOrNull() ?: 0
+                            AnalyticsHelper.logReconnectDelayChanged(context, delayInt)
+                            AnalyticsHelper.logSettingChanged(
+                                context,
+                                "reconnect_delay",
+                                newDelay
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
+        if (isAdalight) {
+            ListPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_adalight_baudrate,
+                title = stringResource(R.string.pref_title_adalight_baudrate),
+                entriesRes = R.array.pref_list_adalight_baudrate,
+                entryValuesRes = R.array.pref_list_adalight_baudrate_values,
+                onValueChange = { newBaudrate ->
+                    val baudrateInt = newBaudrate.toIntOrNull() ?: 115200
+                    AnalyticsHelper.logBaudrateChanged(context, baudrateInt)
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "adalight_baudrate",
+                        newBaudrate
+                    )
+                }
+            )
+            ListPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_adalight_protocol,
+                title = stringResource(R.string.pref_title_adalight_protocol),
+                entriesRes = R.array.pref_list_adalight_protocol,
+                entryValuesRes = R.array.pref_list_adalight_protocol_values,
+                onValueChange = { newProtocol ->
+                    AnalyticsHelper.logAdalightProtocolChanged(context, newProtocol)
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "adalight_protocol",
+                        newProtocol
+                    )
+                }
+            )
+        }
+
+        if (isWled) {
+            ListPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_wled_color_order,
+                title = stringResource(R.string.pref_title_wled_color_order),
+                entriesRes = R.array.pref_list_wled_color_order,
+                entryValuesRes = R.array.pref_list_wled_color_order_values,
+                onValueChange = { newColorOrder ->
+                    AnalyticsHelper.logColorOrderChanged(context, newColorOrder)
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "wled_color_order",
+                        newColorOrder
+                    )
+                }
+            )
+            CheckBoxPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_wled_rgbw,
+                title = stringResource(R.string.pref_title_wled_rgbw),
+                onValueChange = { enabled ->
+                    AnalyticsHelper.logRgbwChanged(context, enabled)
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "wled_rgbw",
+                        enabled.toString()
+                    )
+                }
+            )
+        }
+    }
+}

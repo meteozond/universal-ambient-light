@@ -24,6 +24,8 @@ class WLEDClient(
     settlingTime: Int = 200,
     outputDelayMs: Long = 80L,
     updateFrequency: Int = 25,
+    rgbw: Boolean = false,
+    brightness: Int = 255,
 ) : HyperionClient {
 
     enum class Protocol {
@@ -37,6 +39,11 @@ class WLEDClient(
         "udp_raw" -> Protocol.UDP_RAW
         else -> Protocol.DDP
     }
+    private val mRgbw: Boolean = rgbw
+    private val mBrightness: Int = brightness.coerceIn(0, 255)
+
+    @Volatile
+    private var mRgbwFallbackLogged = false
 
     @Volatile
     private var mConnected = false
@@ -356,8 +363,10 @@ class WLEDClient(
     // DDP Protocol Implementation
     private fun createDdpPackets(leds: Array<ColorRgb>): List<ByteArray> {
         val packets = ArrayList<ByteArray>()
-        val channelCount = leds.size * 3
-        val packetCount = (channelCount + DDP_CHANNELS_PER_PACKET - 1) / DDP_CHANNELS_PER_PACKET
+        val bytesPerPixel = bytesPerPixel()
+        val channelsPerPacket = DDP_MAX_LEDS_PER_PACKET * bytesPerPixel
+        val channelCount = leds.size * bytesPerPixel
+        val packetCount = (channelCount + channelsPerPacket - 1) / channelsPerPacket
 
         var channelOffset = 0
 
@@ -366,14 +375,20 @@ class WLEDClient(
             val packetDataSize = if (isLastPacket)
                 channelCount - channelOffset
             else
-                DDP_CHANNELS_PER_PACKET
+                channelsPerPacket
 
             val packet = ByteArray(DDP_HEADER_SIZE + packetDataSize)
 
             // Header
             packet[0] = (0x40 or (if (isLastPacket) 0x01 else 0x00)).toByte() // VER1 | PUSH
             packet[1] = 0 // Sequence number 0 (ignored by receiver)
-            packet[2] = (0x80 or (1 shl 3) or 5).toByte() // customerDefined | RGB | Pixel8
+            // Байт типа данных DDP: старший бит — customer defined, биты 5-3 задают формат
+            // (001 = RGB, 011 = RGBW), биты 2-0 — размер пикселя (5 = 24 бита, 6 = 32 бита).
+            packet[2] = if (mRgbw) {
+                (0x80 or (3 shl 3) or 6).toByte()
+            } else {
+                (0x80 or (1 shl 3) or 5).toByte()
+            }
 
             packet[3] = 0x01 // ID: DISPLAY
 
@@ -398,15 +413,11 @@ class WLEDClient(
 
             // Data
             var dataIdx = DDP_HEADER_SIZE
-            val ledsProcessed = channelOffset / 3
-            val ledsInThisPacket = packetDataSize / 3
+            val ledsProcessed = channelOffset / bytesPerPixel
+            val ledsInThisPacket = packetDataSize / bytesPerPixel
 
             for (i in 0 until ledsInThisPacket) {
-                val led = leds[ledsProcessed + i]
-                val ordered = convertColorOrder(led, mColorOrder)
-                packet[dataIdx++] = ordered[0]
-                packet[dataIdx++] = ordered[1]
-                packet[dataIdx++] = ordered[2]
+                dataIdx = writePixel(packet, dataIdx, leds[ledsProcessed + i], mColorOrder)
             }
 
             packets.add(packet)
@@ -421,6 +432,24 @@ class WLEDClient(
     private fun sendUdpRaw(leds: Array<ColorRgb>) {
         val ledCount = leds.size
         var packet: ByteArray
+
+        if (mRgbw) {
+            if (ledCount <= MAX_LEDS_DRGBW) {
+                sendPacket(createDrgbwPacket(leds))
+                return
+            }
+            // Протокола RGBW со стартовым индексом (аналога DNRGB) в WLED не описано,
+            // поэтому длинную ленту отправляем как RGB — белый канал посчитает сама
+            // прошивка. На DDP этого ограничения нет, и там RGBW работает при любой длине.
+            if (!mRgbwFallbackLogged) {
+                mRgbwFallbackLogged = true
+                Log.w(
+                    TAG,
+                    "RGBW over UDP raw supports up to $MAX_LEDS_DRGBW LEDs, got $ledCount; " +
+                            "falling back to RGB. Use DDP for RGBW on long strips."
+                )
+            }
+        }
 
         if (ledCount <= MAX_LEDS_DRGB) {
             packet = createDRGBPacket(leds)
@@ -447,10 +476,21 @@ class WLEDClient(
         val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
         var idx = 2
         for (led in leds) {
-            val ordered = convertColorOrder(led, effectiveOrder)
-            packet[idx++] = ordered[0]
-            packet[idx++] = ordered[1]
-            packet[idx++] = ordered[2]
+            idx = writeRgb(packet, idx, led, effectiveOrder)
+        }
+        return packet
+    }
+
+    /** DRGBW: как DRGB, но четыре байта на светодиод (см. UDP realtime в документации WLED). */
+    private fun createDrgbwPacket(leds: Array<ColorRgb>): ByteArray {
+        val packet = ByteArray(2 + leds.size * 4)
+        packet[0] = PROTOCOL_DRGBW
+        packet[1] = WLED_TIMEOUT_SECONDS
+
+        val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
+        var idx = 2
+        for (led in leds) {
+            idx = writePixel(packet, idx, led, effectiveOrder)
         }
         return packet
     }
@@ -465,11 +505,7 @@ class WLEDClient(
         val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
         var idx = 4
         for (i in 0 until count) {
-            val led = leds[startIndex + i]
-            val ordered = convertColorOrder(led, effectiveOrder)
-            packet[idx++] = ordered[0]
-            packet[idx++] = ordered[1]
-            packet[idx++] = ordered[2]
+            idx = writeRgb(packet, idx, leds[startIndex + i], effectiveOrder)
         }
         return packet
     }
@@ -488,50 +524,69 @@ class WLEDClient(
         }
     }
 
-    private fun convertColorOrder(led: ColorRgb, order: String): ByteArray {
-        val r = led.red.toByte()
-        val g = led.green.toByte()
-        val b = led.blue.toByte()
+    private fun bytesPerPixel(): Int = if (mRgbw) 4 else 3
 
-        val result = ByteArray(3)
+    /** Яркость применяется к каждому каналу; 255 означает «не трогать». */
+    private fun scaled(value: Int): Int =
+        if (mBrightness >= 255) value else (value * mBrightness) / 255
+
+    /**
+     * Пишет один светодиод и возвращает новую позицию записи. Для RGBW-лент общая для
+     * всех трёх каналов часть уходит на белый светодиод и вычитается из цветных: белый
+     * ярче и чище смешанного из RGB, а суммарная яркость точки не меняется.
+     */
+    private fun writePixel(packet: ByteArray, offset: Int, led: ColorRgb, order: String): Int {
+        if (!mRgbw) return writeRgb(packet, offset, led, order)
+
+        val r = scaled(led.red)
+        val g = scaled(led.green)
+        val b = scaled(led.blue)
+        val w = min(r, min(g, b))
+        val idx = writeChannels(packet, offset, r - w, g - w, b - w, order)
+        packet[idx] = w.toByte()
+        return idx + 1
+    }
+
+    private fun writeRgb(packet: ByteArray, offset: Int, led: ColorRgb, order: String): Int =
+        writeChannels(packet, offset, scaled(led.red), scaled(led.green), scaled(led.blue), order)
+
+    private fun writeChannels(
+        packet: ByteArray,
+        offset: Int,
+        r: Int,
+        g: Int,
+        b: Int,
+        order: String,
+    ): Int {
+        val rb = r.toByte()
+        val gb = g.toByte()
+        val bb = b.toByte()
         when (order) {
             "grb" -> {
-                result[0] = g
-                result[1] = r
-                result[2] = b
+                packet[offset] = gb; packet[offset + 1] = rb; packet[offset + 2] = bb
             }
 
             "brg" -> {
-                result[0] = b
-                result[1] = r
-                result[2] = g
+                packet[offset] = bb; packet[offset + 1] = rb; packet[offset + 2] = gb
             }
 
             "rbg" -> {
-                result[0] = r
-                result[1] = b
-                result[2] = g
+                packet[offset] = rb; packet[offset + 1] = bb; packet[offset + 2] = gb
             }
 
             "gbr" -> {
-                result[0] = g
-                result[1] = b
-                result[2] = r
+                packet[offset] = gb; packet[offset + 1] = bb; packet[offset + 2] = rb
             }
 
             "bgr" -> {
-                result[0] = b
-                result[1] = g
-                result[2] = r
+                packet[offset] = bb; packet[offset + 1] = gb; packet[offset + 2] = rb
             }
 
             else -> {
-                result[0] = r
-                result[1] = g
-                result[2] = b
-            } // rgb
+                packet[offset] = rb; packet[offset + 1] = gb; packet[offset + 2] = bb
+            }
         }
-        return result
+        return offset + 3
     }
 
     private data class PresetValues(
@@ -563,8 +618,10 @@ class WLEDClient(
 
         // UDP Raw Constants
         private const val PROTOCOL_DRGB: Byte = 2
+        private const val PROTOCOL_DRGBW: Byte = 3
         private const val PROTOCOL_DNRGB: Byte = 4
         private const val MAX_LEDS_DRGB = 490
+        private const val MAX_LEDS_DRGBW = 367
         private const val MAX_LEDS_PER_PACKET_DNRGB = 489
         private const val WLED_TIMEOUT_SECONDS: Byte = 5
     }

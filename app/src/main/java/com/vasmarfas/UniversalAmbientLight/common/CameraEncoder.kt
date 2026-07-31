@@ -19,6 +19,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
+import com.vasmarfas.UniversalAmbientLight.common.util.CameraGeometry
 import com.vasmarfas.UniversalAmbientLight.common.util.CameraIdleDetector
 import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor
 import java.nio.ByteBuffer
@@ -399,72 +400,19 @@ class CameraEncoder(
             return mappedCorners
         }
 
-        // Display dimensions after rotation
-        val displayWidth: Int
-        val displayHeight: Int
-        if (rotation == 90 || rotation == 270) {
-            displayWidth = height
-            displayHeight = width
-        } else {
-            displayWidth = width
-            displayHeight = height
-        }
-
-        mappedCorners[0] = mCorners[0] * displayWidth  // top-left
-        mappedCorners[1] = mCorners[1] * displayHeight
-        mappedCorners[2] = mCorners[2] * displayWidth  // top-right
-        mappedCorners[3] = mCorners[3] * displayHeight
-        mappedCorners[4] = mCorners[4] * displayWidth  // bottom-right
-        mappedCorners[5] = mCorners[5] * displayHeight
-        mappedCorners[6] = mCorners[6] * displayWidth  // bottom-left
-        mappedCorners[7] = mCorners[7] * displayHeight
-
-        // Build forward rotation matrix (raw → display) and invert to get display → raw
-        if (rotation != 0) {
-            val rawToDisplay = Matrix()
-            rawToDisplay.postRotate(rotation.toFloat())
-            when (rotation) {
-                90 -> rawToDisplay.postTranslate(height.toFloat(), 0f)
-                180 -> rawToDisplay.postTranslate(width.toFloat(), height.toFloat())
-                270 -> rawToDisplay.postTranslate(0f, width.toFloat())
-            }
-            val displayToRaw = Matrix()
-            rawToDisplay.invert(displayToRaw)
-            displayToRaw.mapPoints(mappedCorners)
-        }
-
-        updateIdleBounds(width, height)
+        CameraGeometry.mapCornersToRaw(mCorners, mappedCorners, width, height, rotation)
+        CameraGeometry.computeIdleBounds(
+            mappedCorners,
+            idleBounds,
+            width,
+            height,
+            IDLE_ROI_INSET
+        )
 
         mappedWidth = width
         mappedHeight = height
         mappedRotation = rotation
         return mappedCorners
-    }
-
-    /**
-     * Axis-aligned box inside the TV quad used for auto-sleep sampling. Inset so a slightly
-     * misaligned quad still samples the panel and not the wall around it.
-     */
-    private fun updateIdleBounds(width: Int, height: Int) {
-        var minX = mappedCorners[0]
-        var maxX = mappedCorners[0]
-        var minY = mappedCorners[1]
-        var maxY = mappedCorners[1]
-        for (i in 1 until 4) {
-            val x = mappedCorners[i * 2]
-            val y = mappedCorners[i * 2 + 1]
-            if (x < minX) minX = x
-            if (x > maxX) maxX = x
-            if (y < minY) minY = y
-            if (y > maxY) maxY = y
-        }
-
-        val insetX = (maxX - minX) * IDLE_ROI_INSET
-        val insetY = (maxY - minY) * IDLE_ROI_INSET
-        idleBounds[0] = (minX + insetX).toInt().coerceIn(0, width - 1)
-        idleBounds[1] = (minY + insetY).toInt().coerceIn(0, height - 1)
-        idleBounds[2] = (maxX - insetX).toInt().coerceIn(idleBounds[0], width - 1)
-        idleBounds[3] = (maxY - insetY).toInt().coerceIn(idleBounds[1], height - 1)
     }
 
     // ======================== Auto-sleep ========================
@@ -487,7 +435,8 @@ class CameraEncoder(
         // Nothing to compare the first sample of a session against: report the maximum
         // deviation so we can never fall asleep before having seen two frames.
         val reference = idleReference
-        val deviation = if (reference == null) MAX_DEVIATION else meanDeviation(samples, reference)
+        val deviation =
+            if (reference == null) MAX_DEVIATION else CameraGeometry.meanDeviation(samples, reference)
 
         val previous = detector.state
         val current = detector.update(luma, deviation, System.currentTimeMillis())
@@ -611,16 +560,6 @@ class CameraEncoder(
             }
         }
         return sum / IDLE_SAMPLE_COUNT
-    }
-
-    /** Mean absolute luminance difference between two sample grids. */
-    private fun meanDeviation(samples: IntArray, reference: IntArray): Int {
-        var sum = 0
-        for (i in samples.indices) {
-            val d = samples[i] - reference[i]
-            sum += if (d < 0) -d else d
-        }
-        return sum / samples.size
     }
 
     // ======================== Helpers ========================

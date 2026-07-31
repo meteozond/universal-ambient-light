@@ -9,10 +9,10 @@ import android.provider.Settings
 import com.vasmarfas.UniversalAmbientLight.common.AccessibilityCaptureService
 
 /**
- * Opens the Accessibility settings as deep as possible for our service:
- *  - Android 13+  → exact service detail page (undocumented intent, works on AOSP)
- *  - Android 9–12 → general page scrolled/highlighted to our component via fragment args
- *  - Fallback     → plain ACTION_ACCESSIBILITY_SETTINGS
+ * Открывает настройки специальных возможностей как можно ближе к нашей службе:
+ *  - Android 13+  → сразу страница нашей службы (недокументированный intent, работает на AOSP)
+ *  - Android 9–12 → общий список с прокруткой и подсветкой нашего компонента через аргументы фрагмента
+ *  - запасной путь → обычный ACTION_ACCESSIBILITY_SETTINGS
  */
 fun openAccessibilitySettings(context: Context) {
     val component = ComponentName(
@@ -22,10 +22,9 @@ fun openAccessibilitySettings(context: Context) {
     val componentKey = component.flattenToString()
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        // API 31+: deep-link straight to THIS service's detail page.
-        // Action/extra are @hide (no SDK constant), so use the raw strings. The previous
-        // code used a wrong extra key ("accessibility_service") which dumped the user on
-        // the general accessibility list — the correct key is below.
+        // API 31+: ведём прямо на страницу ИМЕННО этой службы. Action и extra помечены @hide
+        // (констант в SDK нет), поэтому пишем строками. В прежнем коде ключ extra был неверный
+        // ("accessibility_service"), и пользователь попадал в общий список; правильный — ниже.
         try {
             val intent = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
             intent.putExtra("android.provider.extra.ACCESSIBILITY_DETAILS_SETTINGS", componentKey)
@@ -38,7 +37,7 @@ fun openAccessibilitySettings(context: Context) {
         }
     }
 
-    // Android 9–12: fragment args trick — scrolls & highlights our service in the list
+    // Android 9–12: приём с аргументами фрагмента — список прокручивается к нашей службе и подсвечивает её
     try {
         val fragmentArgs = Bundle()
         fragmentArgs.putString(":settings:fragment_args_key", componentKey)
@@ -50,7 +49,7 @@ fun openAccessibilitySettings(context: Context) {
         return
     } catch (_: Exception) {}
 
-    // Fallback: plain accessibility settings
+    // Запасной путь: обычные настройки специальных возможностей
     try {
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

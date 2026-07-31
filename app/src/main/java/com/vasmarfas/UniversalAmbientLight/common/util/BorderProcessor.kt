@@ -3,21 +3,21 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 import java.nio.ByteBuffer
 
 /**
- * Detects black-bar borders independently for top/right/bottom/left so an
- * asymmetric letterbox (e.g. status bar at the top only) is handled correctly.
+ * Определяет чёрные полосы отдельно сверху, справа, снизу и слева, поэтому
+ * несимметричный letterbox (например, строка состояния только сверху) обрабатывается верно.
  *
- * Each axis-end is scanned by 3 probe lines at 25%/50%/75% of the other axis.
- * The first row/column whose probes include at least one non-black pixel marks
- * where content starts; everything outside that boundary is cropped.
+ * Каждый край проверяется тремя пробными линиями на 25%/50%/75% другой оси.
+ * Первая строка или столбец, где среди проб нашёлся нечёрный пиксель, считается началом
+ * картинки; всё за этой границей отрезается.
  *
- * Jitter is filtered by requiring [stabilityDetections] consecutive matching
- * detections before switching to a new border. The very first known border is
- * adopted immediately so the user sees an effect on the first detection cycle
- * rather than after many seconds.
+ * Дребезг гасится требованием [stabilityDetections] одинаковых замеров подряд, прежде чем
+ * переключиться на новую границу. Самая первая найденная граница применяется сразу, чтобы
+ * пользователь увидел эффект на первом же цикле определения, а не через несколько секунд.
  *
- * Thread-safety: a single processor is used from one capture thread.
- * [blackThreshold] and [stabilityDetections] are volatile to allow the
- * preference listener to update them at any time.
+ *
+ * Потокобезопасность: один экземпляр используется из одного потока захвата.
+ * Поля [blackThreshold] и [stabilityDetections] помечены volatile, потому что слушатель
+ * настроек может поменять их в любой момент.
  */
 class BorderProcessor(
     initialBlackThreshold: Int = 18,
@@ -26,7 +26,7 @@ class BorderProcessor(
     @Volatile
     var blackThreshold: Int = initialBlackThreshold
 
-    /** Consecutive matching detections required before switching to a new border. */
+    /** Сколько одинаковых замеров подряд нужно, чтобы принять новую границу. */
     @Volatile
     var stabilityDetections: Int = initialStabilityDetections
 
@@ -36,16 +36,16 @@ class BorderProcessor(
     private var mConsistentDetections = 0
     private var mDetectCounter = 0
 
-    /** Reusable destination buffer for the crop output. */
+    /** Переиспользуемый буфер под результат обрезки. */
     private var mCropBuffer: ByteArray? = null
 
     private fun checkNewBorder(newBorder: BorderRect) {
         val previous = mPreviousBorder
         if (previous == null) {
-            // First detection cycle: record baseline only. Activation requires the
-            // same stability check as deactivation — keeps both transitions smooth
-            // and avoids an abrupt switch on the very first detection (which can
-            // disrupt the downstream pipeline when dimensions suddenly change).
+            // Первый цикл: только запоминаем базовое значение. Включение проходит ту же
+            // проверку на стабильность, что и выключение, — оба перехода получаются плавными,
+            // без рывка на самом первом замере (резкая смена размеров ломает дальнейший
+            // конвейер обработки).
             mPreviousBorder = newBorder
             mConsistentDetections = 1
             return
@@ -54,8 +54,8 @@ class BorderProcessor(
             mConsistentDetections++
             val needed = stabilityDetections.coerceAtLeast(1)
             if (mConsistentDetections < needed) return
-            // Stable result. "no border" (isKnown=false) is also a valid stable
-            // state — it means letterbox disappeared, so we drop the crop.
+            // Устойчивый результат. «Полос нет» (isKnown=false) — тоже нормальное устойчивое
+            // состояние: letterbox пропал, значит снимаем обрезку.
             val desired: BorderRect? = if (newBorder.isKnown) newBorder else null
             if (currentBorder != desired) currentBorder = desired
         } else {
@@ -64,12 +64,12 @@ class BorderProcessor(
         }
     }
 
-    /** Flat-RGB path (3 bytes per pixel, row-major). */
+    /** Путь для плоского RGB (3 байта на пиксель, построчно). */
     fun parseBorderRgb(rgb: ByteArray, width: Int, height: Int) {
         checkNewBorder(findBorderRgb(rgb, width, height))
     }
 
-    /** MediaProjection ImageReader path (RGBA buffer with strides). */
+    /** Путь для ImageReader из MediaProjection (буфер RGBA со stride). */
     fun parseBorder(buffer: ByteBuffer, width: Int, height: Int, rowStride: Int, pixelStride: Int) {
         checkNewBorder(findBorderRgba(buffer, width, height, rowStride, pixelStride))
     }
@@ -87,7 +87,7 @@ class BorderProcessor(
         val bottom = border.bottom.coerceAtLeast(0)
         val left = border.left.coerceAtLeast(0)
         val right = border.right.coerceAtLeast(0)
-        // Don't crop more than half on any axis — protects against runaway detections.
+        // Не срезаем больше половины ни по одной оси — страховка от разошедшихся замеров.
         val maxV = height / 2 - 1
         val maxH = width / 2 - 1
         val t = top.coerceAtMost(maxV)
@@ -114,20 +114,20 @@ class BorderProcessor(
             System.arraycopy(rgb, srcRow, buffer, dst, rowBytes)
             dst += rowBytes
         }
-        // Return a fresh copy: the Hyperion executor reads the buffer asynchronously
-        // and the encoder thread will write the next frame into mCropBuffer before
-        // the executor finishes. Without a copy the executor sees a torn frame and
-        // downstream code (WLED packetisation, smoothing) can stall briefly.
+        // Возвращаем свежую копию: исполнитель Hyperion читает буфер асинхронно, а поток
+        // энкодера успеет записать в mCropBuffer следующий кадр раньше, чем тот дочитает.
+        // Без копии исполнитель увидит разорванный кадр, и дальше по цепочке (нарезка
+        // пакетов WLED, сглаживание) возможны короткие подвисания.
         return CropResult(buffer.copyOf(), newW, newH)
     }
 
     /**
-     * One-call encoder helper:
-     *  - honors [AppOptions.borderDetectionEnabled];
-     *  - re-runs detection every [AppOptions.borderCheckIntervalFrames] frames;
-     *  - applies the cached crop on every frame so the output stays cropped
-     *    between detections;
-     *  - keeps [AppOptions.borderThreshold] in sync with this processor.
+     * Всё, что нужно энкодеру, одним вызовом:
+     *  - учитывает [AppOptions.borderDetectionEnabled];
+     *  - перезапускает определение каждые [AppOptions.borderCheckIntervalFrames] кадров;
+     *  - применяет запомненную обрезку к каждому кадру, чтобы между замерами картинка
+     *    оставалась обрезанной;
+     *  - поддерживает [AppOptions.borderThreshold] в актуальном состоянии.
      */
     fun applyForEncoder(
         rgb: ByteArray, width: Int, height: Int, options: AppOptions,
@@ -153,14 +153,14 @@ class BorderProcessor(
             return BorderRect.UNKNOWN
         }
         val rowBytes = width * 3
-        // Allow detection up to half of each axis so we catch wide letterbox
-        // (~2.39:1 content on a 16:9 phone leaves ~45% black above and below
-        // the picture — wider than the previous 1/3 cap could see).
+        // Разрешаем срезать до половины каждой оси, чтобы ловить широкий letterbox:
+        // контент 2.39:1 на экране 16:9 оставляет примерно по 45% черноты сверху и снизу —
+        // прежнего предела в треть на это не хватало.
         val maxV = height / 2
         val maxH = width / 2
-        // Sample density. With ~32 probes per row/column the status-bar icons
-        // (≈10% of the row width) can't trip a false "non-black" verdict, but
-        // we still spend < width/32 * width pixels per axis — negligible.
+        // Плотность выборки. При ~32 пробах на строку или столбец значки строки состояния
+        // (примерно 10% ширины строки) уже не дают ложного вердикта «не чёрное», а тратим
+        // мы меньше width/32 * width пикселей на ось — пренебрежимо мало.
         val xStep = maxOf(1, width / NUM_SAMPLES)
         val yStep = maxOf(1, height / NUM_SAMPLES)
 
@@ -189,11 +189,11 @@ class BorderProcessor(
             }
         }
 
-        // Quantize each edge to ~3% bands so single-pixel jitter at the edges
-        // doesn't break BorderRect equality between consecutive detections.
-        // Without this, "no border" content with one stray dark pixel produces
-        // BorderRect(1,0,0,0) one frame and BorderRect(0,1,0,0) the next →
-        // mConsistentDetections never reaches stabilityDetections.
+        // Округляем каждую границу до полос примерно по 3%, чтобы дрожание в один пиксель
+        // не ломало равенство BorderRect между соседними замерами. Без этого на контенте
+        // без полос один случайный тёмный пиксель давал BorderRect(1,0,0,0) в одном кадре
+        // и BorderRect(0,1,0,0) в следующем → mConsistentDetections никогда не доходил
+        // до stabilityDetections.
         return BorderRect(
             quantize(top, height),
             quantize(right, width),
@@ -208,7 +208,7 @@ class BorderProcessor(
         return (value / band) * band
     }
 
-    /** Row is "black" when at least [BLACK_FRACTION] of sampled pixels test as black. */
+    /** Строка считается «чёрной», если чёрными оказались не менее [BLACK_FRACTION] проб. */
     private fun isRowBlack(rgb: ByteArray, rowBytes: Int, y: Int, width: Int, xStep: Int): Boolean {
         val base = y * rowBytes
         var samples = 0
@@ -319,18 +319,18 @@ class BorderProcessor(
     }
 
     companion object {
-        /** How many points to sample per row/column. */
+        /** Сколько точек берём на строку или столбец. */
         private const val NUM_SAMPLES = 32
 
-        /** Row/column counts as "black" when ≥ this fraction (in percent) of sampled pixels are black. */
+        /** Строка или столбец считается чёрным, если чёрных проб не меньше этой доли (в процентах). */
         private const val BLACK_PERCENT = 85
     }
 
     data class CropResult(val rgb: ByteArray, val width: Int, val height: Int)
 
-    /** Crop offsets in pixels from each edge. `-1` means "all probes black on that edge". */
+    /** Отступы обрезки в пикселях от каждого края. `-1` означает «все пробы на этом крае чёрные». */
     data class BorderRect(val top: Int, val right: Int, val bottom: Int, val left: Int) {
-        /** At least one edge had a non-black region — enough to attempt a crop. */
+        /** Хотя бы у одного края нашлась нечёрная область — есть что обрезать. */
         val isKnown: Boolean
             get() = top > 0 || right > 0 || bottom > 0 || left > 0
 

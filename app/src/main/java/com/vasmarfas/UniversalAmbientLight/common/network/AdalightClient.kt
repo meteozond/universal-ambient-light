@@ -56,7 +56,6 @@ class AdalightClient(
     private var mLastAutoThrottlePacketSize: Int = -1
 
     init {
-        // Initialize smoothing with callback to send data
         mSmoothing = ColorSmoothing { leds -> sendLedData(leds) }
         // Применить настройки сглаживания из preferences
         // Сначала применяем пресет как базовые значения
@@ -74,7 +73,7 @@ class AdalightClient(
             mSmoothing.setUpdateFrequency(updateFrequency)
             mEffectiveUpdateFrequency = updateFrequency
         } else {
-            // Preset frequency remains active
+            // Частота из пресета остаётся в силе
             mEffectiveUpdateFrequency = presetValues.updateFrequency
         }
         // enabled всегда переопределяем, так как это отдельная настройка
@@ -88,13 +87,13 @@ class AdalightClient(
         val usbManager = mContext.getSystemService(Context.USB_SERVICE) as? UsbManager
             ?: throw IOException("USB service not available on this device")
 
-        // Find all available USB serial devices
+        // Ищем все доступные USB-устройства с последовательным портом
         val availableDrivers = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
         if (availableDrivers.isEmpty()) {
             throw IOException("No USB serial devices found. Please connect your Adalight device via USB OTG cable")
         }
 
-        // Log all found devices for debugging
+        // Пишем найденные устройства в лог для диагностики
         Log.d(TAG, "Found " + availableDrivers.size + " USB serial device(s)")
         for (i in availableDrivers.indices) {
             val dev = availableDrivers[i].device
@@ -104,18 +103,18 @@ class AdalightClient(
             )
         }
 
-        // Use the first available device
+        // Берём первое доступное устройство
         val driver = availableDrivers[0]
         val device = driver.device
 
-        // Check if we have permission.
+        // Проверяем разрешение.
         // На этом этапе диалог уже должен быть показан активити,
         // поэтому из сервиса мы только проверяем флаг.
         if (!usbManager.hasPermission(device)) {
             throw IOException("USB device permission denied. Please allow USB access when prompted, or grant permission manually in Android Settings > Apps > Hyperion Grabber > Permissions")
         }
 
-        // Open the port
+        // Открываем порт
         val ports = driver.ports
         if (ports.isEmpty()) {
             throw IOException("No serial ports available on USB device")
@@ -160,8 +159,8 @@ class AdalightClient(
             )
         } catch (e: Exception) {
             mConnected = false
-            // Release the underlying USB connection before failing — otherwise the device
-            // stays "busy" and subsequent reconnect attempts fail until the app restarts.
+            // Освобождаем USB-соединение до выхода с ошибкой: иначе устройство остаётся
+            // «занятым», и повторные попытки подключения не пройдут до перезапуска приложения.
             try {
                 mPort?.close()
             } catch (_: Exception) {
@@ -236,7 +235,7 @@ class AdalightClient(
 
     @Throws(IOException::class)
     override fun clear(priority: Int) {
-        // Send all black LEDs
+        // Отправляем все светодиоды чёрными
         val ledCount = LedDataExtractor.getLedCount(mContext)
         val blackLeds = Array(ledCount) { ColorRgb(0, 0, 0) }
         mSmoothing.setTargetColors(blackLeds)
@@ -254,7 +253,7 @@ class AdalightClient(
 
     @Throws(IOException::class)
     override fun setColor(color: Int, priority: Int, duration_ms: Int) {
-        // Get LED count from preferences
+        // Число светодиодов берём из настроек
         val ledCount = LedDataExtractor.getLedCount(mContext)
 
         val r = (color shr 16) and 0xFF
@@ -282,16 +281,15 @@ class AdalightClient(
             throw IOException("Not connected to Adalight device")
         }
 
-        // Extract LED data reusing buffer
         val leds = LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
         mLedDataBuffer = leds
         if (leds.isEmpty()) return
 
-        // Pass to smoothing
+        // Отдаём в сглаживание
         mSmoothing.setTargetColors(mLedDataBuffer)
     }
 
-    // Callback from ColorSmoothing
+    // Обратный вызов от ColorSmoothing
     private fun sendLedData(leds: Array<ColorRgb>) {
         if (!isConnected() || mPaused) return
 
@@ -307,7 +305,7 @@ class AdalightClient(
             maybeAutoThrottle(packet.size)
             port.write(packet, 1000)
 
-            // Log for debugging occasionally
+            // Изредка пишем в лог для диагностики
             if (System.currentTimeMillis() % 2000 < 50) {
                 Log.v(TAG, "Sent packet: " + leds.size + " LEDs")
             }
@@ -363,7 +361,7 @@ class AdalightClient(
         val dataSize = ledCount * 3
         val packet = ByteArray(6 + dataSize)
 
-        // Header
+        // Заголовок
         packet[0] = 'A'.code.toByte()
         packet[1] = 'd'.code.toByte()
         packet[2] = 'a'.code.toByte()
@@ -373,7 +371,7 @@ class AdalightClient(
         packet[4] = (ledCountMinusOne and 0xFF).toByte()
         packet[5] = (packet[3].toInt() xor packet[4].toInt() xor 0x55).toByte()
 
-        // RGB data
+        // Данные RGB
         var offset = 6
         for (led in leds) {
             packet[offset++] = led.red.toByte()
@@ -393,23 +391,23 @@ class AdalightClient(
 
         val packet = ByteArray(6 + startFrameSize + dataSize + endFrameSize)
 
-        // Header (same as ADA but with ledCount, not ledCount-1)
+        // Заголовок как у ADA, но с ledCount, а не ledCount-1
         packet[0] = 'A'.code.toByte()
         packet[1] = 'd'.code.toByte()
         packet[2] = 'a'.code.toByte()
 
-        // LBAPA uses ledCount directly, NOT ledCount-1 like standard Adalight
+        // LBAPA использует ledCount напрямую, а НЕ ledCount-1, как обычный Adalight
         packet[3] = ((ledCount shr 8) and 0xFF).toByte()
         packet[4] = (ledCount and 0xFF).toByte()
         packet[5] = (packet[3].toInt() xor packet[4].toInt() xor 0x55).toByte()
 
-        // Start Frame (4 bytes 0x00)
+        // Стартовый кадр (4 байта 0x00)
         var offset = 6
         for (i in 0 until startFrameSize) {
             packet[offset++] = 0x00
         }
 
-        // LED data: [0xFF, R, G, B] for each LED
+        // Данные светодиодов: [0xFF, R, G, B] на каждый
         for (led in leds) {
             packet[offset++] = 0xFF.toByte()
             packet[offset++] = led.red.toByte()
@@ -417,7 +415,7 @@ class AdalightClient(
             packet[offset++] = led.blue.toByte()
         }
 
-        // End Frame
+        // Завершающий кадр
         for (i in 0 until endFrameSize) {
             packet[offset++] = 0x00
         }
@@ -428,7 +426,7 @@ class AdalightClient(
     private fun createAwaPacket(leds: Array<ColorRgb>): ByteArray {
         val ledCount = leds.size
         val dataSize = ledCount * 3
-        // Checksum size = 3 bytes (Fletcher)
+        // Размер контрольной суммы — 3 байта (Флетчер)
         val packet = ByteArray(6 + dataSize + 3)
 
         packet[0] = 'A'.code.toByte()
@@ -447,11 +445,11 @@ class AdalightClient(
             packet[offset++] = led.blue.toByte()
         }
 
-        // Fletcher Checksum
+        // Контрольная сумма Флетчера
         var fletcher1 = 0
         var fletcher2 = 0
         var fletcherExt = 0
-        // Hyperion implementation uses 0-based position
+        // В реализации Hyperion позиция считается с нуля
         var position = 0
 
         for (i in 0 until dataSize) {
@@ -467,7 +465,7 @@ class AdalightClient(
         packet[offset++] = fletcher1.toByte()
         packet[offset++] = fletcher2.toByte()
 
-        // Handle special case 0x41 ('A') to avoid confusion with header
+        // Особый случай 0x41 ('A') обрабатываем отдельно, чтобы не спутать с заголовком
         packet[offset] = if (fletcherExt == 0x41) 0xaa.toByte() else fletcherExt.toByte()
 
         return packet

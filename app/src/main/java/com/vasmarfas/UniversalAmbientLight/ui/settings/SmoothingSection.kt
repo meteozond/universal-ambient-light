@@ -19,7 +19,6 @@ import com.vasmarfas.UniversalAmbientLight.R
 @Composable
 internal fun ColumnScope.SmoothingSection(prefs: Preferences, state: SettingsScreenState) {
     val context = LocalContext.current
-    // Smoothing Group
     SettingsGroup(title = stringResource(R.string.pref_group_smoothing)) {
         CheckBoxPreference(
             prefs = prefs,

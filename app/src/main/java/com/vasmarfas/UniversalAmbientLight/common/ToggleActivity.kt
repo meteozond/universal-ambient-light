@@ -41,7 +41,7 @@ class ToggleActivity : AppCompatActivity() {
         }
     }
 
-    /** @return whether the service is running
+    /** @return запущен ли сервис
      */
     private fun checkForInstance(): Boolean {
         if (isServiceRunning) {
@@ -72,9 +72,9 @@ class ToggleActivity : AppCompatActivity() {
                         REQUEST_MEDIA_PROJECTION
                     )
                 } catch (e: ActivityNotFoundException) {
-                    // Some custom Android TV firmware doesn't ship the standard SystemUI
-                    // MediaProjectionPermissionActivity. Fall back to launching the service
-                    // directly without MediaProjection if the configured method supports it.
+                    // В части сторонних прошивок Android TV нет системной
+                    // MediaProjectionPermissionActivity из SystemUI. Тогда запускаем сервис
+                    // напрямую, без MediaProjection, если выбранный метод это позволяет.
                     Log.w(TAG, "MediaProjection permission dialog unavailable: ${e.message}")
                     val captureMethod =
                         prefs.getString(R.string.pref_key_capture_method, "media_projection")
@@ -88,8 +88,8 @@ class ToggleActivity : AppCompatActivity() {
             }
         }
 
-        // ToggleActivity is used from launcher shortcut / external actions.
-        // If Adalight is selected, ensure USB permission first to avoid "tap twice" UX.
+        // ToggleActivity вызывают ярлыком с рабочего стола и внешними действиями.
+        // Для Adalight сначала берём разрешение на USB, иначе пришлось бы нажимать дважды.
         if ("adalight".equals(connectionType, ignoreCase = true)) {
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this,
@@ -104,7 +104,7 @@ class ToggleActivity : AppCompatActivity() {
         }
     }
 
-    /** stop recording & stop service  */
+    /** Останавливает запись и сам сервис  */
 
     private fun stopService() {
         val stopIntent = Intent(this@ToggleActivity, ScreenGrabberService::class.java)
@@ -124,9 +124,9 @@ class ToggleActivity : AppCompatActivity() {
             context.startForegroundService(intent)
         }
 
-        // Starts the service directly without MediaProjection token — for alternative
-        // capture methods (screencap, adb, accessibility, etc.) on devices where the
-        // system MediaProjection permission dialog is unavailable.
+        // Запускает сервис сразу, без токена MediaProjection — для альтернативных способов
+        // захвата (screencap, adb, accessibility и прочих) на устройствах, где системного
+        // диалога разрешения MediaProjection нет.
         private fun startScreenRecorderDirect(context: Context) {
             val intent = Intent(context, ScreenGrabberService::class.java)
             intent.action = ScreenGrabberService.ACTION_START

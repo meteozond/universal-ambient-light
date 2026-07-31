@@ -5,14 +5,14 @@ import android.util.Log
 import com.vasmarfas.UniversalAmbientLight.common.AccessibilityCaptureService
 
 /**
- * "One-button" wireless ADB pairing for Android 11+.
+ * Сопряжение беспроводного ADB «в одну кнопку» для Android 11+.
  *
- * Reads the 6-digit pairing code from the system "Pair device with pairing code"
- * screen via the accessibility service and finds the pairing port via mDNS, then
- * pairs in the background — so the user never leaves that screen (leaving it would
- * cancel pairing) and never types the code.
+ * Считывает шестизначный код с системного экрана «Подключение с помощью кода» через службу
+ * доступности, находит порт сопряжения через mDNS и сопрягается в фоне — пользователю не
+ * приходится ни уходить с этого экрана (уход отменил бы сопряжение), ни вводить код руками.
  *
- * Blocking; call off the main thread.
+ *
+ * Блокирующий вызов, из главного потока не запускать.
  */
 object AdbAutoPair {
     private const val TAG = "AdbAutoPair"
@@ -34,8 +34,8 @@ object AdbAutoPair {
             var port = -1
 
             while (System.currentTimeMillis() < deadline) {
-                // Poll-scan the current Settings screen: read the code, or tap forward
-                // through "Wireless debugging" → "Pair with code" (static screens emit no events).
+                // Опрашиваем текущий экран настроек: читаем код либо шагаем вперёд по
+                // «Отладка по Wi-Fi» → «Подключение с помощью кода» (статичные экраны событий не шлют).
                 AccessibilityCaptureService.scanActiveWindow()
 
                 val code = AccessibilityCaptureService.detectedPairingCode()
@@ -58,7 +58,7 @@ object AdbAutoPair {
                         return Result.Failed(e.message ?: "pair error")
                     }
                     if (!ok) return Result.Failed("pairing rejected")
-                    // Establish the working connection right away (best-effort).
+                    // Сразу поднимаем рабочее соединение (best-effort).
                     try {
                         mgr.autoConnect(context, 8000)
                     } catch (_: Throwable) {

@@ -8,14 +8,14 @@ import com.vasmarfas.UniversalAmbientLight.common.util.UsbRootPermissionHelper.g
 import java.util.concurrent.TimeUnit
 
 /**
- * Grants USB device permission via root (su + app_process) so that
- * the app can access USB serial devices without a user dialog.
+ * Выдаёт разрешение на USB-устройство через root (su и app_process), чтобы приложение
+ * могло работать с USB-последовательными устройствами без диалога.
  *
- * Uses the hidden IUsbManager.grantDevicePermission() API, called from
- * a root process via app_process. This grants runtime permission directly
- * in UsbService's memory — works immediately, no reboot needed.
+ * Использует скрытый API IUsbManager.grantDevicePermission(), вызываемый из root-процесса
+ * через app_process. Разрешение выдаётся прямо в памяти UsbService — действует сразу,
+ * перезагрузка не нужна.
  *
- * Requires Magisk or similar root solution.
+ * Требуется Magisk или другой способ получения root.
  */
 object UsbRootPermissionHelper {
     private const val TAG = "UsbRootPermission"
@@ -25,8 +25,8 @@ object UsbRootPermissionHelper {
     private var cachedRootAvailable: Boolean? = null
 
     /**
-     * Checks if root (su) is available on this device.
-     * Result is cached for the lifetime of the process.
+     * Проверяет, доступен ли root (su) на этом устройстве.
+     * Результат кэшируется на время жизни процесса.
      */
     fun isRootAvailable(): Boolean {
         cachedRootAvailable?.let { return it }
@@ -52,9 +52,9 @@ object UsbRootPermissionHelper {
     }
 
     /**
-     * Grants USB permission for connected serial devices via root.
-     * Blocking — call from a worker thread, or use [grantPermissionViaRootAsync].
-     * @return true if at least one device permission was granted
+     * Выдаёт разрешение на USB для подключённых последовательных устройств через root.
+     * Блокирующий вызов — из рабочего потока либо через [grantPermissionViaRootAsync].
+     * @return true, если разрешение выдано хотя бы для одного устройства
      */
     @WorkerThread
     fun grantPermissionViaRoot(context: Context): Boolean {
@@ -124,7 +124,7 @@ object UsbRootPermissionHelper {
         }
     }
 
-    /** Fire-and-forget root grant; result posted on main. */
+    /** Выдача через root без ожидания результата; ответ приходит на главный поток. */
     fun grantPermissionViaRootAsync(context: Context, onComplete: (granted: Boolean) -> Unit) {
         val appContext = context.applicationContext
         Thread {

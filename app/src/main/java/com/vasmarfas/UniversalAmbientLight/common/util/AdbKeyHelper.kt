@@ -6,8 +6,8 @@ import java.io.File
 
 object AdbKeyHelper {
 
-    // Synchronized to prevent two encoders racing on first-time RSA-2048 generation
-    // (which would corrupt the key files and break ADB auth until app restart).
+    // Синхронизировано, чтобы два энкодера не начали одновременно генерировать RSA-2048 при
+    // первом запуске: файлы ключей повредились бы, и авторизация ADB отвалилась бы до перезапуска.
     @Synchronized
     fun getKeyPair(context: Context): AdbKeyPair {
         val privateKeyFile = File(context.filesDir, "adbkey")

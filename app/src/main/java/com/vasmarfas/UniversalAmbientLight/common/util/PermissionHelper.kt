@@ -24,8 +24,8 @@ object PermissionHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (Settings.canDrawOverlays(context)) return true
 
-            // On some Android TV devices (e.g. Yandex TV), Settings.canDrawOverlays returns false
-            // even if permission is granted via ADB/AppOps. We check AppOps directly.
+            // На части телевизоров (например, Яндекс ТВ) Settings.canDrawOverlays возвращает false,
+            // даже когда разрешение выдано через ADB или AppOps, поэтому спрашиваем AppOps напрямую.
             try {
                 val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
                 val mode = appOps.checkOpNoThrow(

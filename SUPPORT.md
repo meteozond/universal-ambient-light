@@ -1,30 +1,25 @@
 # Support the Project
 
-Thank you for your interest in Universal Ambient Light! If you'd like to support the development, here are several ways to do so:
+Universal Ambient Light is free and stays free. If you want to help it along, here is how.
 
-## 💰 Ways to Support
+## Donations
 
+**Boosty** — https://boosty.to/vasmarfas/donate
 
-#### Boosty
-https://boosty.to/vasmarfas/donate
-#### TON/USDT(TON)
+**TON / USDT (TON)**
+
 ```
 UQCYtzsovMRC1vFrXxxDXFlIetj7N_0KKHEwsJVaxKROYzNS
 ```
-## ⭐ Leave a Review
 
-One of the best ways to support the project is to leave a review on Google Play!
+## Leave a Review
+
+A review on Google Play helps other people find the app:
 
 https://play.google.com/store/apps/details?id=com.vasmarfas.UniversalAmbientLight
 
-Your reviews help other users discover the app and motivate continued development.
+## Contact
 
-## 📧 Contact
-
-If you have questions or suggestions, you can:
-- Create an issue on [GitHub](https://github.com/vasmarfas/universal-ambient-light/issues)
-- Write in project discussions
-
----
-
-**Thank you for your support!** 🙏
+Questions and suggestions go to the
+[GitHub issue tracker](https://github.com/vasmarfas/universal-ambient-light/issues) or to
+the project discussions.

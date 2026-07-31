@@ -23,7 +23,7 @@ class HyperionFlatBuffers(
     private var mSocket: Socket? = null
 
     init {
-        // Validate port range (1-65535)
+        // Порт должен попадать в диапазон 1-65535
         if (port < 1 || port > 65535) {
             throw IllegalArgumentException("Port out of range: $port (must be between 1 and 65535)")
         }
@@ -63,8 +63,8 @@ class HyperionFlatBuffers(
 
     @Throws(IOException::class)
     override fun clear(priority: Int) {
-        // Use separate FlatBufferBuilder for each message to avoid
-        // FlatBuffers "object serialization must not be nested" errors on concurrent calls
+        // Для каждого сообщения свой FlatBufferBuilder: иначе при параллельных вызовах
+        // FlatBuffers ругается «object serialization must not be nested»
         val builder = newBuilder()
         val clearOffset = Clear.createClear(builder, priority)
         val requestOffset = Request.createRequest(builder, Command.Clear, clearOffset)
@@ -133,8 +133,8 @@ class HyperionFlatBuffers(
             output.write(data)
             output.flush()
 
-            // Don't wait for reply - fire and forget for minimal latency
-            // Replies will be handled asynchronously if needed
+            // Ответа не ждём — так задержка минимальна; при необходимости ответы
+            // разбираются асинхронно.
         }
     }
 
@@ -143,8 +143,8 @@ class HyperionFlatBuffers(
     }
 
     private fun receiveReply() {
-        // Non-blocking reply consumption to keep socket clean
-        // This is called separately and doesn't block frame sending
+        // Неблокирующее вычитывание ответов, чтобы сокет не забивался. Вызывается отдельно
+        // и отправку кадров не задерживает.
         val input = mSocket?.getInputStream() ?: return
         try {
             while (input.available() >= 4) {
@@ -166,7 +166,7 @@ class HyperionFlatBuffers(
                 }
             }
         } catch (e: IOException) {
-            // Ignore - non-blocking read
+            // Чтение неблокирующее, ошибку игнорируем
         }
     }
 }

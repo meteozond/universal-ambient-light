@@ -10,17 +10,17 @@ import android.view.accessibility.AccessibilityNodeInfo
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Service for capturing screen content via Accessibility API (Android 11+).
- * This is a workaround for devices where MediaProjection is blocked.
+ * Захват содержимого экрана через Accessibility API (Android 11+).
+ * Обходной путь для устройств, где MediaProjection заблокирован.
  *
- * Also used to auto-read the 6-digit ADB wireless pairing code from the system
- * "Pair device with pairing code" screen, so the app can pair without the user
- * typing it (and without leaving that screen, which would cancel pairing).
+ * Он же автоматически считывает шестизначный код сопряжения беспроводного ADB с системного
+ * экрана «Подключение с помощью кода», чтобы пользователю не пришлось вводить код вручную
+ * и уходить с этого экрана — уход отменил бы сопряжение.
  *
- * Note: the class is not annotated @RequiresApi(30) on purpose — the service runs on
- * API 26+, and the only API 30 call (takeScreenshot) is guarded at runtime below. Marking
- * the whole class @RequiresApi would force every (API-safe) companion call site across the
- * app to require API 30.
+ * Аннотации @RequiresApi(30) на классе намеренно нет: служба работает с API 26, а
+ * единственный вызов из API 30 (takeScreenshot) закрыт проверкой в рантайме ниже. Пометь
+ * мы весь класс, и API 30 потребовался бы каждому обращению к companion-объекту по всему
+ * приложению, хотя сами эти вызовы безопасны.
  */
 class AccessibilityCaptureService : AccessibilityService() {
 
@@ -32,9 +32,10 @@ class AccessibilityCaptureService : AccessibilityService() {
     }
 
     /**
-     * If the user was just sent here to enable this service for auto-pair, bring our app
-     * back to the foreground so they don't have to press Back through Settings. Best-effort:
-     * background activity start may be blocked on some OS versions (then Back still works).
+     * Если пользователя только что отправили сюда включить службу для автосопряжения,
+     * возвращаем приложение на передний план, чтобы ему не пришлось выбираться из настроек
+     * кнопкой «Назад». Best-effort: часть версий ОС запрещает запуск активити из фона —
+     * тогда «Назад» по-прежнему работает.
      */
     private fun returnToAppIfRequested() {
         val ts = returnRequestedAt
@@ -63,17 +64,17 @@ class AccessibilityCaptureService : AccessibilityService() {
     }
 
     /**
-     * Reads the pairing code if the dialog is up, otherwise walks the Settings menus
-     * forward by tapping "Pair with code" / "Wireless debugging" rows (never toggles).
-     * Driven both by events and by polling from the coordinator, because static screens
-     * (e.g. Developer Options) emit no events after the watch starts.
+     * Читает код сопряжения, если диалог уже открыт, иначе проходит по меню настроек вперёд,
+     * нажимая строки «Подключение с помощью кода» и «Отладка по Wi-Fi» (переключатели не трогает).
+     * Работает и по событиям, и по опросу от координатора, потому что статичные экраны
+     * (например, «Для разработчиков») после запуска наблюдения событий не присылают.
      */
     private fun scanActiveWindowInternal() {
         if (!pairingWatch) return
         try {
             val root = rootInActiveWindow ?: return
             val pkg = root.packageName?.toString() ?: ""
-            // Only act inside the system Settings app.
+            // Работаем только внутри системного приложения «Настройки».
             if (!pkg.contains("settings", ignoreCase = true)) return
 
             val code = findSixDigitCode(root)
@@ -99,14 +100,14 @@ class AccessibilityCaptureService : AccessibilityService() {
         return null
     }
 
-    /** Finds a node whose text/description contains any keyword and clicks its row. */
+    /** Находит узел, в тексте или описании которого есть одно из ключевых слов, и жмёт его строку. */
     private fun clickByKeywords(root: AccessibilityNodeInfo?, keywords: List<String>, label: String): Boolean {
         val now = System.currentTimeMillis()
         if (label == lastClickLabel && now - lastClickTime < 3000) return false
         val node = findByKeywords(root, keywords) ?: return false
         var n: AccessibilityNodeInfo? = node
         while (n != null) {
-            // Click the list-row container, never a switch/toggle (would flip the setting).
+            // Нажимаем контейнер строки, но никогда не переключатель — иначе перевернём саму настройку.
             if (n.isClickable && !isToggle(n)) {
                 if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     lastClickLabel = label
@@ -157,8 +158,8 @@ class AccessibilityCaptureService : AccessibilityService() {
                             screenshot.hardwareBuffer,
                             screenshot.colorSpace
                         )
-                        // Copy to a software-readable bitmap. wrapHardwareBuffer-backed
-                        // bitmaps must not be recycled — closing the buffer is enough.
+                        // Копируем в программно читаемый bitmap. Bitmap поверх wrapHardwareBuffer
+                        // нельзя recycle() — достаточно закрыть сам буфер.
                         copy = bitmap?.copy(Bitmap.Config.ARGB_8888, true)
                     } catch (e: Exception) {
                         Log.e(TAG, "Screenshot conversion failed", e)
@@ -188,7 +189,7 @@ class AccessibilityCaptureService : AccessibilityService() {
         private val instance = AtomicReference<AccessibilityCaptureService?>(null)
         private val SIX_DIGITS = Regex("^\\d{6}$")
 
-        // Lowercased substrings to recognise the relevant Settings rows across locales.
+        // Подстроки в нижнем регистре, по которым узнаём нужные строки настроек в разных локалях.
         private val PAIR_KEYWORDS = listOf(
             "pair device with pairing code", "pairing code", "pair using",
             "кода подключения", "помощью кода", "код сопряж"
@@ -204,7 +205,7 @@ class AccessibilityCaptureService : AccessibilityService() {
         @Volatile
         private var returnRequestedAt = 0L
 
-        /** Call right before sending the user to enable this service, to auto-return on grant. */
+        /** Вызывать прямо перед отправкой пользователя включать службу — тогда вернём его сами. */
         fun requestReturnToAppOnConnect() {
             returnRequestedAt = System.currentTimeMillis()
         }
@@ -212,12 +213,12 @@ class AccessibilityCaptureService : AccessibilityService() {
         @Volatile
         private var autoPairPending = false
 
-        /** Mark that auto-pair should resume (show consent) once the user returns to the app. */
+        /** Отмечает, что после возвращения в приложение автосопряжение нужно продолжить (со спросом). */
         fun markAutoPairPending() {
             autoPairPending = true
         }
 
-        /** Returns true once if auto-pair was pending, then clears the flag. */
+        /** Возвращает true один раз, если автосопряжение было отложено, и снимает флаг. */
         fun consumeAutoPairPending(): Boolean {
             val v = autoPairPending
             autoPairPending = false
@@ -226,10 +227,10 @@ class AccessibilityCaptureService : AccessibilityService() {
 
         fun getInstance(): AccessibilityCaptureService? = instance.get()
 
-        /** True if the accessibility service is currently connected (can read the screen). */
+        /** True, если служба доступности сейчас подключена и может читать экран. */
         fun isAvailable(): Boolean = instance.get() != null
 
-        /** Begin watching the system pairing screen for the 6-digit code. */
+        /** Начать следить за системным экраном сопряжения в ожидании шестизначного кода. */
         fun startPairingWatch() {
             detectedCode.set(null)
             pairingWatch = true
@@ -240,10 +241,10 @@ class AccessibilityCaptureService : AccessibilityService() {
             detectedCode.set(null)
         }
 
-        /** The last 6-digit code read from the pairing screen, or null. */
+        /** Последний прочитанный с экрана сопряжения шестизначный код или null. */
         fun detectedPairingCode(): String? = detectedCode.get()
 
-        /** Polled scan trigger — events don't fire on static Settings screens. */
+        /** Триггер опроса: на статичных экранах настроек события не приходят. */
         fun scanActiveWindow() {
             instance.get()?.scanActiveWindowInternal()
         }

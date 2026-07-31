@@ -46,7 +46,7 @@ object TclBypass {
 
     fun openTclAutoStartSettings(context: Context): Boolean {
         val intents = arrayOf(
-            // TCL specific intents
+            // Интенты, специфичные для TCL
             Intent().setComponent(
                 ComponentName(
                     "com.tcl.guard",
@@ -71,7 +71,7 @@ object TclBypass {
                     "com.tcl.tvweishi.settings.AutoBootManageActivity"
                 )
             ),
-            // TCL TV Settings
+            // Настройки телевизоров TCL
             Intent().setComponent(
                 ComponentName(
                     "com.android.tv.settings",
@@ -84,7 +84,7 @@ object TclBypass {
                     "com.android.tv.settings.device.apps.AppsActivity"
                 )
             ),
-            // Generic auto-start intents
+            // Общие интенты автозапуска
             Intent("android.settings.APPLICATION_DEVELOPMENT_SETTINGS"),
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 .setData(Uri.parse("package:" + context.packageName))
@@ -107,12 +107,12 @@ object TclBypass {
 
     fun openSpecialAppAccess(context: Context): Boolean {
         val intents = arrayOf(
-            // Special app access
+            // Особый доступ для приложений
             Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
                 .setData(Uri.parse("package:" + context.packageName)),
             Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION")
                 .setData(Uri.parse("package:" + context.packageName)),
-            // TV Settings apps section
+            // Раздел приложений в настройках ТВ
             Intent().setComponent(
                 ComponentName(
                     "com.android.tv.settings",
@@ -137,8 +137,8 @@ object TclBypass {
     }
 
     fun tryShellBypass(context: Context) {
-        // Dedupe — multiple service restarts on TCL devices used to pile up parallel
-        // shell-bypass threads, each forking 15 sh processes.
+        // Защита от дублей: на устройствах TCL повторные запуски сервиса плодили параллельные
+        // потоки shell-обхода, каждый из которых порождал по 15 процессов sh.
         if (!sBypassInFlight.compareAndSet(false, true)) return
 
         Thread {

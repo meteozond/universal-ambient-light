@@ -77,7 +77,7 @@ fun HelpDialog(
 }
 
 /**
- * Opens GitHub issues/new page
+ * Открывает страницу создания issue на GitHub.
  */
 fun openGitHubIssues(context: Context) {
     val url = context.getString(R.string.github_issues_url)
@@ -87,15 +87,14 @@ fun openGitHubIssues(context: Context) {
     try {
         context.startActivity(intent)
     } catch (e: Exception) {
-        // Fallback: try to open in browser with category browsable
+        // Запасной путь: пробуем открыть в браузере с категорией browsable
         try {
             val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             browserIntent.addCategory(Intent.CATEGORY_BROWSABLE)
             browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(browserIntent)
         } catch (e2: Exception) {
-            // SecurityException or ActivityNotFoundException
-            // If all else fails, show toast or log
+            // Ни один браузер не отозвался — открыть ссылку не получится
             Log.e("MainActivity", "Failed to open GitHub issues: ${e2.message}")
             Toast.makeText(
                 context,
@@ -107,7 +106,7 @@ fun openGitHubIssues(context: Context) {
 }
 
 /**
- * Opens Google Play review dialog
+ * Открывает диалог оценки Google Play.
  */
 fun openGooglePlayReview(context: Context) {
     if (context is Activity) {
@@ -116,7 +115,7 @@ fun openGooglePlayReview(context: Context) {
 }
 
 /**
- * Rating dialog with 1-5 stars
+ * Диалог оценки: от одной до пяти звёзд.
  */
 @Composable
 fun RatingDialog(
@@ -183,7 +182,7 @@ fun RatingDialog(
 }
 
 /**
- * Dialog shown after low rating (1-3 stars)
+ * Диалог, показываемый после низкой оценки (1–3 звезды).
  */
 @Composable
 fun LowRatingDialog(

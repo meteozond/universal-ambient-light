@@ -54,23 +54,23 @@ class CameraEncoder(
     @Volatile
     private var mCapturing = false
 
-    // Track our own use case so we can unbind it without affecting other use cases (e.g. Activity Preview)
+    // Держим ссылку на свой use case, чтобы отвязывать только его и не трогать чужие
     private var imageAnalysisUseCase: ImageAnalysis? = null
 
-    // Corners (copy to prevent external mutation)
+    // Углы копируем, чтобы снаружи их нельзя было поменять
     private val mCorners = corners.copyOf()
 
-    // Timing
+    // Тайминги
     private val frameIntervalMs = 1000L / options.frameRate
 
-    // While asleep we only need enough samples to notice the TV coming back on.
+    // Во сне достаточно замеров, чтобы заметить, что телевизор снова включился.
     private val idleFrameIntervalMs = max(frameIntervalMs, IDLE_FRAME_INTERVAL_MS)
 
-    // Output dimensions
+    // Размеры выходного изображения
     private val outputWidth: Int
     private val outputHeight: Int
 
-    // Reusable buffers
+    // Переиспользуемые буферы
     private var srcBitmap: Bitmap? = null
     private var correctedBitmap: Bitmap? = null
     private var rgbBuffer: ByteArray? = null
@@ -81,25 +81,25 @@ class CameraEncoder(
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val perspectiveMatrix = Matrix()
 
-    /** Destination quad of the perspective correction — the whole output bitmap. */
+    /** Приёмник перспективной коррекции — весь выходной bitmap. */
     private val outputRect: FloatArray
 
-    // Corners projected into raw buffer coordinates, cached per frame geometry.
+    // Углы, спроецированные в координаты сырого буфера; кэшируются под геометрию кадра.
     private val mappedCorners = FloatArray(8)
     private var mappedWidth = -1
     private var mappedHeight = -1
     private var mappedRotation = -1
 
-    // --- Auto-sleep (issue #38) ---
-    // Rebuilt whenever the user edits the thresholds; null while the feature is off.
+    // --- Автоматический сон (issue #38) ---
+    // Пересоздаётся при правке порогов пользователем; null, пока функция выключена.
     private var idleDetector: CameraIdleDetector? = null
 
-    // Luminance grid of the last processed frame (awake) or of the frame we fell asleep
-    // on (asleep), plus a scratch buffer the two swap between.
+    // Сетка яркости последнего обработанного кадра (в бодрствовании) или того кадра, на
+    // котором уснули, плюс запасной буфер, которым эти два меняются местами.
     private var idleReference: IntArray? = null
     private var idleSamples: IntArray? = null
 
-    // Sample area inside the TV quad: left, top, right, bottom in raw coordinates.
+    // Область замеров внутри четырёхугольника ТВ: left, top, right, bottom в сырых координатах.
     private val idleBounds = IntArray(4)
 
     @Volatile
@@ -127,7 +127,7 @@ class CameraEncoder(
         )
     }
 
-    // ======================== Public API ========================
+    // ======================== Публичный API ========================
 
     fun start() {
         mainHandler.post {
@@ -154,7 +154,7 @@ class CameraEncoder(
 
         mainHandler.post {
             try {
-                // Only unbind our own ImageAnalysis, not everything (Preview from Activity may still be bound)
+                // Отвязываем только свой ImageAnalysis: Preview активити может быть ещё привязан
                 imageAnalysisUseCase?.let { cameraProvider?.unbind(it) }
                 imageAnalysisUseCase = null
             } catch (e: Exception) {
@@ -221,16 +221,16 @@ class CameraEncoder(
     }
 
     override fun setOrientation(orientation: Int) {
-        // Camera rotation handled automatically via rotationDegrees in processFrame
+        // Поворот камеры учитывается автоматически через rotationDegrees в processFrame
     }
 
-    // ======================== Camera binding ========================
+    // ======================== Привязка камеры ========================
 
     private fun bindCamera() {
         val provider = cameraProvider ?: return
 
-        // Unbind only our previous ImageAnalysis (if any), not everything.
-        // This preserves the Activity's Preview use case.
+        // Отвязываем только свой предыдущий ImageAnalysis, а не всё подряд:
+        // так у активити сохраняется её Preview.
         imageAnalysisUseCase?.let {
             try {
                 provider.unbind(it)
@@ -272,7 +272,7 @@ class CameraEncoder(
 
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-        // A rebound camera starts a new session: don't judge it by the old frames.
+        // Перепривязка камеры начинает новую сессию: судить о ней по старым кадрам нельзя.
         idleDetector?.reset()
         idleReference = null
         idleState = CameraIdleDetector.State.AWAKE
@@ -288,7 +288,7 @@ class CameraEncoder(
         }
     }
 
-    // ======================== Frame processing ========================
+    // ======================== Обработка кадра ========================
 
     private fun processFrame(imageProxy: ImageProxy) {
         val width = imageProxy.width
@@ -299,13 +299,12 @@ class CameraEncoder(
         val buffer = plane.buffer
         val rowStride = plane.rowStride
 
-        // 1. Project the configured corners onto the raw buffer (cached per geometry)
+        // Проецируем заданные углы на сырой буфер (результат кэшируется по геометрии)
         val srcPts = mapCornersToRaw(width, height, rotation)
 
-        // 2. Auto-sleep: while the TV has nothing new to show, everything below is skipped
+        // Автосон: пока телевизору нечего показать, всё, что ниже, пропускается
         if (!updateIdleState(buffer, rowStride)) return
 
-        // 3. Read RGBA bytes from camera
         val totalBytes = rowStride * height
         var rgba = rgbaBytes
         if (rgba == null || rgba.size < totalBytes) {
@@ -315,7 +314,6 @@ class CameraEncoder(
         buffer.rewind()
         buffer.get(rgba, 0, min(totalBytes, buffer.remaining()))
 
-        // 4. Create source Bitmap (RGBA → ARGB conversion)
         var src = srcBitmap
         if (src == null || src.width != width || src.height != height) {
             src?.recycle()
@@ -330,8 +328,8 @@ class CameraEncoder(
             pixelInts = ints
         }
 
-        // CameraX RGBA_8888: bytes are R, G, B, A
-        // Android ARGB_8888 int: 0xAARRGGBB
+        // CameraX отдаёт RGBA_8888: байты идут R, G, B, A
+        // Android ждёт ARGB_8888 в int: 0xAARRGGBB
         for (y in 0 until height) {
             val rowOff = y * rowStride
             for (x in 0 until width) {
@@ -344,10 +342,9 @@ class CameraEncoder(
         }
         src.setPixels(ints, 0, width, 0, 0, width, height)
 
-        // 5. Perspective correction: srcPts → output rectangle
+        // Перспективная коррекция: srcPts → выходной прямоугольник
         perspectiveMatrix.setPolyToPoly(srcPts, 0, outputRect, 0, 4)
 
-        // 6. Draw source bitmap with perspective correction into output
         var corrected = correctedBitmap
         if (corrected == null || corrected.width != outputWidth || corrected.height != outputHeight) {
             corrected?.recycle()
@@ -359,7 +356,6 @@ class CameraEncoder(
         canvas.drawColor(android.graphics.Color.BLACK)
         canvas.drawBitmap(src, perspectiveMatrix, paint)
 
-        // 7. Extract RGB from corrected bitmap
         val pixels = outPixels ?: IntArray(outputWidth * outputHeight).also { outPixels = it }
         corrected.getPixels(pixels, 0, outputWidth, 0, 0, outputWidth, outputHeight)
 
@@ -377,10 +373,9 @@ class CameraEncoder(
             rgb[idx++] = (pixel and 0xFF).toByte()           // B
         }
 
-        // 8. Apply color processing
         ColorProcessor.processRgbData(rgb, options)
 
-        // 9. Send frame (with optional letterbox crop)
+        // Отправка кадра с необязательной обрезкой чёрных полос
         val cropped =
             mBorderCropper.applyForEncoder(rgb, outputWidth, outputHeight, options)
         lastSentWidth = cropped.width
@@ -388,12 +383,12 @@ class CameraEncoder(
         listener.sendFrame(cropped.rgb, cropped.width, cropped.height)
     }
 
-    // ======================== Geometry ========================
+    // ======================== Геометрия ========================
 
     /**
-     * Projects the configured corners (normalized, display space) onto raw buffer
-     * coordinates. Returns a reused array — callers must only read it. Recomputed when the
-     * frame geometry or the sensor rotation changes, which also refreshes [idleBounds].
+     * Проецирует заданные углы (нормализованные, в координатах экрана) в координаты
+     * сырого буфера. Возвращает переиспользуемый массив — его можно только читать.
+     * Пересчитывается при смене геометрии кадра или поворота сенсора, заодно обновляя [idleBounds].
      */
     private fun mapCornersToRaw(width: Int, height: Int, rotation: Int): FloatArray {
         if (width == mappedWidth && height == mappedHeight && rotation == mappedRotation) {
@@ -415,12 +410,12 @@ class CameraEncoder(
         return mappedCorners
     }
 
-    // ======================== Auto-sleep ========================
+    // ======================== Автоматический сон ========================
 
     /**
-     * Updates the auto-sleep state from this frame.
+     * Обновляет состояние автосна по текущему кадру.
      *
-     * @return true when the frame should be processed and streamed to the LEDs
+     * @return true, если кадр нужно обработать и отправить на ленту
      */
     private fun updateIdleState(buffer: ByteBuffer, rowStride: Int): Boolean {
         val detector = syncIdleDetector()
@@ -432,8 +427,8 @@ class CameraEncoder(
         val samples = idleSamples ?: IntArray(IDLE_SAMPLE_COUNT).also { idleSamples = it }
         val luma = sampleLuma(buffer, rowStride, samples)
 
-        // Nothing to compare the first sample of a session against: report the maximum
-        // deviation so we can never fall asleep before having seen two frames.
+        // Первый замер сессии сравнивать не с чем: сообщаем максимальное отклонение,
+        // чтобы уснуть раньше двух увиденных кадров было нельзя.
         val reference = idleReference
         val deviation =
             if (reference == null) MAX_DEVIATION else CameraGeometry.meanDeviation(samples, reference)
@@ -443,21 +438,21 @@ class CameraEncoder(
         idleState = current
 
         if (current == CameraIdleDetector.State.AWAKE) {
-            // Awake: compare against the previous frame. The arrays trade places so neither
-            // has to be reallocated.
+            // Бодрствуем: сравниваем с предыдущим кадром. Массивы меняются местами, чтобы
+            // ни один не пришлось выделять заново.
             idleReference = samples
             idleSamples = reference
         }
-        // Asleep: the reference stays frozen on the frame we fell asleep on, so a slow fade
-        // accumulates instead of hiding in per-frame noise. See CameraIdleDetector.
+        // Во сне эталон заморожен на кадре засыпания: медленное затухание накапливается,
+        // а не теряется в шуме между соседними кадрами. См. CameraIdleDetector.
 
         if (current != previous) onIdleStateChanged(previous, current)
         return current == CameraIdleDetector.State.AWAKE
     }
 
     /**
-     * Returns the detector matching the current preferences, rebuilding it when the user
-     * edits the thresholds mid-session, or null while auto-sleep is off.
+     * Возвращает детектор, соответствующий текущим настройкам: пересоздаёт его, если
+     * пороги поменяли по ходу сессии, и отдаёт null, пока автосон выключен.
      */
     private fun syncIdleDetector(): CameraIdleDetector? {
         if (!options.cameraIdleEnabled) {
@@ -468,8 +463,8 @@ class CameraEncoder(
             return null
         }
 
-        // Compared field by field rather than against a fresh Config, so the common case
-        // (settings unchanged) allocates nothing on the capture thread.
+        // Сравниваем поле за полем, а не со свежим Config: в обычном случае (настройки
+        // не менялись) это не выделяет памяти в потоке захвата.
         val timeoutMs = options.cameraIdleTimeoutSec * 1000L
         val existing = idleDetector
         if (existing != null &&
@@ -481,7 +476,7 @@ class CameraEncoder(
             return existing
         }
 
-        // Thresholds changed (or first frame): start awake under the new settings.
+        // Пороги изменились (или это первый кадр): начинаем бодрствовать с новыми настройками.
         val config = CameraIdleDetector.Config(
             timeoutMs = timeoutMs,
             darkLevel = options.cameraIdleDarkLevel,
@@ -510,12 +505,12 @@ class CameraEncoder(
     }
 
     /**
-     * Turns the strip off for the duration of a blank-screen sleep.
+     * Гасит ленту на время сна по чёрному экрану.
      *
-     * Sent as a normal frame rather than via [HyperionThread.HyperionThreadListener.clear]
-     * because the Hyperion keepalive resends the last *frame* ([HyperionThread] holds it
-     * across a clear), so a cleared strip would light back up a second later. A black frame
-     * stays black for as long as any protocol's keepalive repeats it.
+     * Отправляем именно кадром, а не через [HyperionThread.HyperionThreadListener.clear]:
+     * keepalive Hyperion повторяет последний *кадр* ([HyperionThread] держит его и после
+     * очистки), поэтому погашенная лента через секунду загорелась бы снова. Чёрный кадр
+     * остаётся чёрным, сколько бы keepalive любого протокола его ни повторял.
      */
     private fun sendBlackFrame() {
         val w = if (lastSentWidth > 0) lastSentWidth else outputWidth
@@ -527,9 +522,9 @@ class CameraEncoder(
     }
 
     /**
-     * Fills [out] with a sparse luminance grid over [idleBounds] and returns its mean.
-     * Reads the camera buffer directly — a few hundred samples per frame instead of the
-     * full-frame conversion the streaming path needs.
+     * Заполняет [out] разрежённой сеткой яркости по области [idleBounds] и возвращает среднее.
+     * Читает буфер камеры напрямую: несколько сотен замеров на кадр вместо полной
+     * конвертации, которая нужна пути потоковой отправки.
      */
     private fun sampleLuma(buffer: ByteBuffer, rowStride: Int, out: IntArray): Int {
         val left = idleBounds[0]
@@ -546,7 +541,7 @@ class CameraEncoder(
             for (col in 0 until IDLE_SAMPLE_COLS) {
                 val x = left + (spanX * (col + 0.5f) / IDLE_SAMPLE_COLS).toInt()
                 val index = rowOffset + x * 4
-                // Rows may be padded past the end of the buffer on some devices.
+                // На части устройств строки дополнены и выходят за конец буфера.
                 val luma = if (index >= 0 && index + 2 < limit) {
                     val r = buffer.get(index).toInt() and 0xFF
                     val g = buffer.get(index + 1).toInt() and 0xFF
@@ -562,7 +557,7 @@ class CameraEncoder(
         return sum / IDLE_SAMPLE_COUNT
     }
 
-    // ======================== Helpers ========================
+    // ======================== Вспомогательное ========================
 
     private fun clearAndDisconnect() {
         Thread {
@@ -582,28 +577,28 @@ class CameraEncoder(
         private const val CLEAR_FRAMES = 5
         private const val CLEAR_DELAY_MS = 100L
 
-        // Auto-sleep sampling. 24x18 points over the TV area is plenty to tell a lit panel
-        // from a dark one and to notice a picture change, at ~0.1% of the pixel work the
-        // streaming path does.
+        // Замеры для автосна. Сетки 24x18 по площади телевизора хватает, чтобы отличить
+        // светящуюся панель от тёмной и заметить смену картинки, а работы это требует
+        // примерно в тысячу раз меньше, чем полный проход по пикселям.
         private const val IDLE_SAMPLE_COLS = 24
         private const val IDLE_SAMPLE_ROWS = 18
         private const val IDLE_SAMPLE_COUNT = IDLE_SAMPLE_COLS * IDLE_SAMPLE_ROWS
 
-        /** Fraction trimmed off each side of the TV quad before sampling. */
+        /** Доля, отрезаемая с каждой стороны четырёхугольника ТВ перед замерами. */
         private const val IDLE_ROI_INSET = 0.12f
 
-        /** Sampling period while asleep: 5 Hz, so waking up takes well under a second. */
+        /** Частота замеров во сне: 5 Гц, так что просыпание укладывается в доли секунды. */
         private const val IDLE_FRAME_INTERVAL_MS = 200L
 
         private const val MAX_DEVIATION = 255
 
-        /** Parse corners string "x1,y1,x2,y2,x3,y3,x4,y4" → FloatArray(8) */
+        /** Разбор строки углов "x1,y1,x2,y2,x3,y3,x4,y4" → FloatArray(8) */
         fun parseCornersString(str: String?): FloatArray {
             if (str != null) {
                 val parts = str.split(",").mapNotNull { it.trim().toFloatOrNull() }
                 if (parts.size == 8) return parts.toFloatArray()
             }
-            // Default: 10% inset from edges
+            // По умолчанию отступ 10% от краёв
             return floatArrayOf(
                 0.1f, 0.1f,   // top-left
                 0.9f, 0.1f,   // top-right

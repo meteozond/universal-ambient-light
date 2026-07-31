@@ -25,29 +25,34 @@ import kotlin.math.max
 import kotlin.random.Random
 
 /**
- * Screen capture via the bundled scrcpy server (Apache 2.0).
+ * Захват экрана через встроенный сервер scrcpy (Apache 2.0).
  *
- * Scrcpy uses SurfaceControl directly (via high-privilege app_process context),
- * bypassing the MediaProjection restrictions that break screenrecord on some devices.
+ * Scrcpy обращается к SurfaceControl напрямую (из привилегированного контекста
+ * app_process) и обходит ограничения MediaProjection, из-за которых на части устройств
+ * не работает screenrecord.
  *
- * Protocol differences by version:
- *   v1.x  – positional args; raw H264 after 68-byte device-info header
- *   v2.x  – key=value args; framed mode: each frame is [8-byte PTS][4-byte len][data]
- *   v3.x  – like v2.x but also requires `scid=XXXXXXXX`; socket name = "scrcpy_XXXXXXXX"
- *   v4.x  – like v3.x, but the wire protocol changed:
- *             • video header (codec meta) shrank 12 → 4 bytes (codecId only;
- *               width/height removed). `send_codec_meta` was renamed to
- *               `send_stream_meta` (both default true — we don't pass it).
- *             • a 12-byte "session meta" packet is inserted into the frame stream
- *               before the config packet and again on every resize:
- *               [flags(4)][width(4)][height(4)], carrying the current video size.
- *             • frame flag bits shifted: bit63=session, bit62=config, bit61=key-frame
- *               (was bit63=config, bit62=key-frame).
+ * Различия протокола по версиям:
+ *   v1.x  – позиционные аргументы; сырой H264 после 68-байтового заголовка с
+ *           информацией об устройстве
+ *   v2.x  – аргументы вида key=value; кадровый режим: каждый кадр это
+ *           [8 байт PTS][4 байта длина][данные]
+ *   v3.x  – как v2.x, но дополнительно требует `scid=XXXXXXXX`; имя сокета —
+ *           "scrcpy_XXXXXXXX"
+ *   v4.x  – как v3.x, но изменился формат передачи:
+ *             • заголовок видео (codec meta) сократился с 12 до 4 байт (остался
+ *               только codecId, ширина и высота убраны). `send_codec_meta`
+ *               переименован в `send_stream_meta` (оба по умолчанию true — мы их
+ *               не передаём).
+ *             • в поток кадров добавлен 12-байтовый пакет «session meta»: он идёт
+ *               перед пакетом конфигурации и повторяется при каждом изменении
+ *               размера — [flags(4)][width(4)][height(4)] с текущим размером видео.
+ *             • сдвинулись биты флагов кадра: bit63=session, bit62=config,
+ *               bit61=ключевой кадр (было bit63=config, bit62=ключевой кадр).
  *
- * Frame packets (framed mode, without raw_stream):
- *   config flag set  →  codec config (SPS/PPS); pass with BUFFER_FLAG_CODEC_CONFIG
- *   session flag set →  (v4 only) metadata, no payload follows
- *   otherwise        →  normal frame
+ * Пакеты кадров (кадровый режим, без raw_stream):
+ *   стоит флаг config  →  конфигурация кодека (SPS/PPS), отдаём с BUFFER_FLAG_CODEC_CONFIG
+ *   стоит флаг session →  (только v4) метаданные, полезной нагрузки за ними нет
+ *   иначе              →  обычный кадр
  */
 class ScrcpyEncoder(
     private val mContext: Context,
@@ -65,7 +70,7 @@ class ScrcpyEncoder(
     @Volatile
     private var mRgbBuffer: ByteArray? = null
 
-    /** Each entry = one complete H264 frame + metadata. */
+    /** Одна запись — один целый кадр H264 вместе с метаданными. */
     private data class Frame(val data: ByteArray, val pts: Long, val codecFlags: Int)
 
     private val mFrameQueue = ArrayBlockingQueue<Frame>(64)
@@ -101,13 +106,13 @@ class ScrcpyEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Version detection — scan binary AndroidManifest.xml for versionName
+    // Определение версии — ищем versionName в бинарном AndroidManifest.xml
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Extracts the scrcpy server version string by:
-     * 1. Checking META-INF/MANIFEST.MF for "Scrcpy-Version:" entry (old approach).
-     * 2. Scanning binary AndroidManifest.xml for UTF-16LE encoded semver strings.
+     * Достаёт версию сервера scrcpy: сначала пробует запись "Scrcpy-Version:" в
+     * META-INF/MANIFEST.MF (так это работало раньше), затем ищет semver-строку в
+     * кодировке UTF-16LE в бинарном AndroidManifest.xml.
      */
     private fun detectVersion(): String? {
         try {
@@ -144,16 +149,16 @@ class ScrcpyEncoder(
     }
 
     /**
-     * Scans an Android binary XML (AXML) byte array for UTF-16LE strings that look
-     * like a semantic version (e.g. "3.3.4"). The versionName attribute is stored
-     * as a plain string in the AXML string pool and is the only semver-formatted
-     * string in a typical scrcpy server APK.
+     * Ищет в байтах бинарного XML (AXML) строки UTF-16LE, похожие на semver-версию
+     * (например, "3.3.4"). Атрибут versionName лежит в пуле строк AXML обычной
+     * строкой и в типичном APK сервера scrcpy оказывается единственным значением
+     * такого формата.
      */
     private fun scanBinaryManifestForVersion(data: ByteArray): String? {
         val semver = Regex("^\\d+\\.\\d+(\\.\\d+)*$")
         var i = 0
         while (i < data.size - 4) {
-            // UTF-16LE: each char is [lo, 0x00]; look for ASCII digit + null byte
+            // UTF-16LE: каждый символ это [младший байт, 0x00] — ищем цифру ASCII с нулём
             if (data[i].toInt() in 0x30..0x39 && data[i + 1] == 0.toByte()) {
                 val sb = StringBuilder()
                 var j = i
@@ -177,7 +182,7 @@ class ScrcpyEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Lifecycle
+    // Жизненный цикл
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun startCapture() {
@@ -224,22 +229,22 @@ class ScrcpyEncoder(
         val watchdogTriggered = AtomicBoolean(false)
 
         try {
-            // ── 1. Detect version ─────────────────────────────────────────
+            // ── Определяем версию сервера ─────────────────────────────────
             val version = detectVersion()
             val major = version?.split(".")?.firstOrNull()?.toIntOrNull() ?: 1
             Log.i(TAG, "scrcpy-server version: ${version ?: "unknown (v1.x assumed)"}")
 
-            // ── 2. ADB connect ────────────────────────────────────────────
+            // ── Подключаемся по ADB ───────────────────────────────────────
             val kp = AdbKeyHelper.getKeyPair(mContext)
-            // dadb can't use the Android 11+ TLS wireless-debugging port, and that port
-            // rotates anyway. Resolve a dadb-usable plain port (flips adbd to tcpip:5555
-            // over the TLS connection when needed).
+            // dadb не умеет работать с TLS-портом беспроводной отладки Android 11+, да и
+            // порт этот всё равно меняется. Подбираем обычный порт, пригодный для dadb
+            // (при необходимости переводим adbd в tcpip:5555 через TLS-соединение).
             val adbPort = AdbPortResolver.resolveForDadb(mContext, mAdbPort)
             Log.i(TAG, "ADB connecting on port $adbPort (configured $mAdbPort)…")
             dadb = Dadb.create("127.0.0.1", adbPort, kp)
             Log.i(TAG, "ADB connected")
 
-            // ── 3. Push server every time (avoid stale/corrupted remote binary) ─
+            // ── Заливаем сервер заново, чтобы не нарваться на битую копию ─
             Log.i(TAG, "Pushing scrcpy-server to device…")
             val tmp = File(mContext.cacheDir, ASSET_NAME)
             mContext.assets.open(ASSET_NAME)
@@ -248,8 +253,8 @@ class ScrcpyEncoder(
             tmp.delete()
             Log.i(TAG, "Server pushed to $REMOTE_PATH")
 
-            // ── 4. Build start command ────────────────────────────────────
-            // v3.x needs a scid — it determines the abstract socket name.
+            // ── Собираем команду запуска ──────────────────────────────────
+            // v3.x требует scid — от него зависит имя абстрактного сокета.
             val scid: String?
             val socketName: String
             val useFramedMode: Boolean
@@ -260,7 +265,7 @@ class ScrcpyEncoder(
                     scid = "%08x".format(Random.nextInt() and 0x7FFFFFFF)
                     socketName = "scrcpy_$scid"
                     useFramedMode = true
-                    // tunnel_forward=true → server creates LocalServerSocket, we connect to it
+                    // tunnel_forward=true → сервер поднимает LocalServerSocket, мы к нему подключаемся
                     startCmd = "shell:CLASSPATH=$REMOTE_PATH app_process / " +
                             "com.genymobile.scrcpy.Server $version " +
                             "scid=$scid log_level=info " +
@@ -281,7 +286,7 @@ class ScrcpyEncoder(
                 }
 
                 else -> {
-                    // v1.x positional: max_size bit_rate max_fps tunnel_forward crop send_frame_meta control
+                    // Позиционные аргументы v1.x: max_size bit_rate max_fps tunnel_forward crop send_frame_meta control
                     scid = null
                     socketName = SOCKET_NAME
                     useFramedMode = true
@@ -293,7 +298,7 @@ class ScrcpyEncoder(
             Log.i(TAG, "Starting: $startCmd")
             shellStream = dadb.open(startCmd)
 
-            // Read server stdout/stderr in background for diagnostics
+            // Фоном перечитываем stdout/stderr сервера — нужно для диагностики
             val shellOut = shellStream
             Thread({
                 try {
@@ -308,11 +313,11 @@ class ScrcpyEncoder(
                 }
             }, "scrcpy-shell-reader").also { it.isDaemon = true; it.start() }
 
-            // ── 5. Connect to abstract socket via ADB tunnel ──────────────
-            // With tunnel_forward=true, the server creates a LocalServerSocket.
-            // We connect to it through the ADB daemon (localabstract: service).
+            // ── Подключаемся к абстрактному сокету через туннель ADB ──────
+            // При tunnel_forward=true сервер поднимает LocalServerSocket, а мы идём к нему
+            // через демон ADB (сервис localabstract:).
 
-            // Give server time to start JVM + bind socket
+            // Даём серверу время поднять JVM и занять сокет
             for (attempt in 1..30) {
                 Thread.sleep(200)
                 if (!mRunning) return false
@@ -336,9 +341,9 @@ class ScrcpyEncoder(
             val lastActivity = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
             val finalVideoStream = videoStream
 
-            // Watchdog: only detect startup stall (no frames at all).
-            // Do NOT restart active sessions on temporary no-data periods:
-            // scrcpy may legitimately send nothing on static scenes.
+            // Сторож ловит только зависание на старте, когда кадров нет вообще.
+            // Рабочую сессию из-за пауз в данных перезапускать нельзя: на статичной
+            // картинке scrcpy законно может не присылать ничего.
             Thread({
                 while (mRunning && !cleanExit) {
                     Thread.sleep(2000)
@@ -359,13 +364,13 @@ class ScrcpyEncoder(
                 }
             }, "scrcpy-watchdog").also { it.isDaemon = true; it.start() }
 
-            // ── 6. Read fixed metadata ──────────────────────────────────────
-            // With send_dummy_byte=false + defaults (send_device_meta / send_stream_meta = true):
-            // - 64 bytes device name
-            // - stream header (codec meta):
-            //     v2.x/v3.x -> 12 bytes: codecId + width + height
-            //     v4.x      ->  4 bytes: codecId only (size arrives later in a
-            //                   "session meta" packet inside the frame stream)
+            // ── Читаем метаданные фиксированной длины ────────────────────
+            // При send_dummy_byte=false и умолчаниях (send_device_meta / send_stream_meta = true):
+            // - 64 байта имени устройства
+            // - заголовок потока (codec meta):
+            //     v2.x/v3.x -> 12 байт: codecId + ширина + высота
+            //     v4.x      ->  4 байта: только codecId (размер приходит позже
+            //                   пакетом «session meta» внутри потока кадров)
             val deviceMeta = ByteArray(64)
             readFully(socketInput, deviceMeta)
             val deviceName = String(deviceMeta, Charsets.UTF_8).trimEnd('\u0000')
@@ -386,7 +391,7 @@ class ScrcpyEncoder(
                 Log.i(TAG, "Device: '$deviceName', codecId=$codecId, stream=${streamW}x${streamH}")
             }
 
-            // ── 7. Configure MediaCodec ───────────────────────────────────
+            // ── Настраиваем MediaCodec ───────────────────────────────────
             val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, mCapW, mCapH)
             fmt.setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
@@ -399,7 +404,7 @@ class ScrcpyEncoder(
             Log.i(TAG, "MediaCodec started (${mCapW}×${mCapH})")
             val finalDecoder = decoder
 
-            // ── Thread 2: codec input ─────────────────────────────────────
+            // ── Поток 2: вход кодека ─────────────────────────────────────
             codecInThread = Thread({
                 try {
                     while (mRunning && sessionActive.get()) {
@@ -414,7 +419,7 @@ class ScrcpyEncoder(
                                 buf.clear()
                                 val len = minOf(frame.data.size - offset, buf.remaining())
                                 buf.put(frame.data, offset, len)
-                                // Use proper PTS and flags for better decoder behaviour
+                                // Корректные PTS и флаги — декодер ведёт себя стабильнее
                                 val pts = if (frame.pts < 0) 0L else frame.pts
                                 finalDecoder.queueInputBuffer(idx, 0, len, pts, frame.codecFlags)
                                 offset += len
@@ -426,7 +431,7 @@ class ScrcpyEncoder(
                 }
             }, "scrcpy-codec-in").also { it.isDaemon = true; it.start() }
 
-            // ── Thread 3: codec output ────────────────────────────────────
+            // ── Поток 3: выход кодека ────────────────────────────────────
             codecOutThread = Thread({
                 val info = MediaCodec.BufferInfo()
                 while (mRunning && sessionActive.get()) {
@@ -475,14 +480,14 @@ class ScrcpyEncoder(
                 }
             }, "scrcpy-codec-out").also { it.isDaemon = true; it.start() }
 
-            // ── Thread 1 (this): read socket → queue ──────────────────────
+            // ── Поток 1 (текущий): сокет → очередь ───────────────────────
             if (useFramedMode) {
-                // Framed mode: [8-byte PTS+flags big-endian][4-byte len big-endian][data]
-                // Flag bits in the PTS field differ by protocol version:
-                //   v2.x/v3.x -> bit63 = config, bit62 = key-frame
-                //   v4.x      -> bit63 = session meta, bit62 = config, bit61 = key-frame
-                // A v4 "session meta" packet carries no payload: the 8-byte field holds
-                // [flags(4)][width(4)] and the 4-byte "len" field holds the height.
+                // Кадровый режим: [8 байт PTS+флаги big-endian][4 байта длина big-endian][данные]
+                // Биты флагов в поле PTS зависят от версии протокола:
+                //   v2.x/v3.x -> bit63 = config, bit62 = ключевой кадр
+                //   v4.x      -> bit63 = session meta, bit62 = config, bit61 = ключевой кадр
+                // Пакет «session meta» из v4 не несёт данных: в 8-байтовом поле лежит
+                // [flags(4)][width(4)], а в 4-байтовом поле длины — высота.
                 val isV4 = major >= 4
                 val configMask = if (isV4) (1L shl 62) else Long.MIN_VALUE
                 val ptsMask = if (isV4) 0x1FFFFFFFFFFFFFFFL else 0x3FFFFFFFFFFFFFFFL
@@ -495,7 +500,7 @@ class ScrcpyEncoder(
                     val frameLen =
                         ByteBuffer.wrap(metaBuf, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()
 
-                    // v4 session-meta packet (bit63): no payload follows — just the size.
+                    // Пакет session meta из v4 (bit63): данных за ним нет, только размер.
                     if (isV4 && (ptsAndFlags and Long.MIN_VALUE) != 0L) {
                         val sessW = (ptsAndFlags and 0xFFFFFFFFL).toInt()
                         val sessH = frameLen
@@ -521,12 +526,12 @@ class ScrcpyEncoder(
                     val isConfig = (ptsAndFlags and configMask) != 0L
                     val pts = ptsAndFlags and ptsMask
                     val flags = if (isConfig) MediaCodec.BUFFER_FLAG_CODEC_CONFIG else 0
-                    // Backpressure: wait for space so we never lose frames
+                    // Обратное давление: ждём место в очереди, чтобы не терять кадры
                     while (mRunning && mFrameQueue.size >= 56) Thread.sleep(4)
                     mFrameQueue.offer(Frame(frameData, pts, flags), 200, TimeUnit.MILLISECONDS)
                 }
             } else {
-                // Raw H264 mode (v1.x without send_frame_meta — fallback)
+                // Режим сырого H264 (v1.x без send_frame_meta — запасной путь)
                 val chunk = ByteArray(16384)
                 Log.i(TAG, "Reading in raw mode")
                 while (mRunning) {
@@ -559,7 +564,7 @@ class ScrcpyEncoder(
                 cleanExit = true
             }
         } finally {
-            // Stop worker threads first, then stop codec to avoid race/crash on shutdown.
+            // Сначала останавливаем рабочие потоки и только потом кодек — иначе гонка и падение.
             sessionActive.set(false)
             mFrameQueue.clear()
             codecInThread?.interrupt()
@@ -590,7 +595,7 @@ class ScrcpyEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // YUV → RGB (zero Bitmap allocations)
+    // YUV → RGB (без единой аллокации Bitmap)
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun processImageDirect(image: Image) {

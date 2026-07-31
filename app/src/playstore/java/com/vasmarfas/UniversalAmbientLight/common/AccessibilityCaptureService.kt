@@ -1,10 +1,10 @@
 package com.vasmarfas.UniversalAmbientLight.common
 
 /**
- * Play Store stub. The "full" flavor ships a real AccessibilityService here; the Google
- * Play flavor must not contain any AccessibilityService, so this is a plain, inert class
- * that keeps shared code compiling. Every entry point reports "unavailable", so all
- * accessibility-dependent code paths stay dormant in this build.
+ * Заглушка для Google Play. Во флейворе full здесь настоящая служба доступности, а сборка
+ * для Google Play не должна содержать никаких AccessibilityService, поэтому здесь обычный
+ * инертный класс, чтобы общий код компилировался. Все точки входа отвечают «недоступно», и
+ * зависящие от доступности пути в этой сборке не работают.
  */
 class AccessibilityCaptureService private constructor() {
 

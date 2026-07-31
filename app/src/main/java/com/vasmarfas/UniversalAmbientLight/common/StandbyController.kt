@@ -29,7 +29,7 @@ internal class StandbyController(
     private val mPauseRunnable = Runnable { onPause() }
 
     fun acquireWakeLock() {
-        // Re-acquire if the previous lock already timed out on its own (standby longer than the timeout)
+        // Берём заново, если прошлая блокировка успела истечь сама (простой дольше таймаута)
         if (mWakeLock?.isHeld == true) return
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -62,7 +62,7 @@ internal class StandbyController(
         try {
             val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             if (wm != null) {
-                // HighPerf to prevent UDP throttling during idle (helps on some Android TV firmwares)
+                // HighPerf снимает троттлинг UDP в простое — помогает на части прошивок Android TV
                 val lock = wm.createWifiLock(
                     WifiManager.WIFI_MODE_FULL_HIGH_PERF,
                     "ScreenGrabberService::Wifi"
@@ -116,8 +116,8 @@ internal class StandbyController(
     companion object {
         private const val TAG = "StandbyController"
 
-        // Delay before silencing output on SCREEN_OFF: covers the 5 clear frames (~500ms)
-        // plus smoothing settling/output delay so the strip is reliably black first.
+        // Пауза перед тем, как замолчать по SCREEN_OFF: покрывает пять чёрных кадров (~500 мс)
+        // плюс время сглаживания и задержку вывода, чтобы лента точно успела погаснуть.
         private const val PAUSE_DELAY_MS = 1500L
 
         private const val WAKE_LOCK_TIMEOUT_MS = 60 * 60 * 1000L

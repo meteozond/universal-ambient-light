@@ -12,13 +12,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Discovers the device's own wireless-debugging ports over mDNS so the user does not
- * have to read the (random) port from Developer Options by hand.
+ * Находит через mDNS порты беспроводной отладки самого устройства, чтобы пользователю не
+ * приходилось переписывать случайный порт из меню разработчика руками.
  *
- *  - [TLS_CONNECT] — the connect port used after pairing (Android 11+)
- *  - [TLS_PAIRING] — the pairing port shown under "Pair device with pairing code"
+ *  - [TLS_CONNECT] — порт подключения после сопряжения (Android 11+)
+ *  - [TLS_PAIRING] — порт сопряжения с экрана «Подключение с помощью кода»
  *
- * Blocking; call off the main thread.
+ * Блокирующий вызов, из главного потока не запускать.
  */
 object AdbMdns {
     private const val TAG = "AdbMdns"
@@ -29,8 +29,8 @@ object AdbMdns {
     data class Service(val host: InetAddress, val port: Int)
 
     /**
-     * Discovers the first [serviceType] instance advertised on the local network and
-     * returns its host/port, or null on timeout.
+     * Находит первый экземпляр [serviceType], объявленный в локальной сети, и возвращает
+     * его хост и порт либо null по таймауту.
      */
     fun discover(context: Context, serviceType: String, timeoutMs: Long = 5000): Service? {
         val nsd = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return null
@@ -62,8 +62,8 @@ object AdbMdns {
             override fun onDiscoveryStopped(serviceType: String) {}
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                // resolveService is deprecated on API 34+ but works on API 26+; one resolve
-                // at a time is fine here since we only need the first match.
+                // resolveService помечен устаревшим с API 34, но работает начиная с API 26;
+                // разрешать по одному запросу за раз здесь достаточно — нужен только первый ответ.
                 try {
                     nsd.resolveService(serviceInfo, resolveListener)
                 } catch (e: Exception) {

@@ -113,9 +113,9 @@ fun EditTextPreference(
     onValueChange: ((String) -> Unit)? = null,
     recomposeKey: Any? = null,
 ) {
-    // For numeric prefs the xml defaults live in <integer pref_default_*>; getString()
-    // doesn't see them. Fall back to getInt() so the UI shows the resource default
-    // instead of an empty field on first launch.
+    // Для числовых настроек значения по умолчанию лежат в <integer pref_default_*>, и
+    // getString() их не видит. Откатываемся на getInt(), иначе при первом запуске поле
+    // показалось бы пустым вместо значения из ресурсов.
     fun readInitial(): String {
         val stored = prefs.getString(keyRes)
         if (!stored.isNullOrEmpty()) return stored
@@ -129,14 +129,12 @@ fun EditTextPreference(
         recomposeKey?.let { value = readInitial() }
     }
 
-    // Reset dialog state when recomposeKey changes (e.g., when navigating away)
-    // This ensures dialogs are closed when the screen is navigated away from
+    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана
     var showDialog by remember(recomposeKey) { mutableStateOf(false) }
 
-    // Close dialog when component is disposed (e.g., when navigating away)
+    // Закрываем диалог, когда компонент уходит из композиции
     DisposableEffect(Unit) {
         onDispose {
-            // Force close dialog when leaving the screen
             showDialog = false
         }
     }
@@ -171,8 +169,8 @@ fun EditTextPreference(
         }
 
         fun applyValue() {
-            // Trim: a stray space from an on-screen keyboard would otherwise pass the
-            // "not empty" checks and only fail later as an unreachable host.
+            // Обрезаем пробелы: случайный пробел с экранной клавиатуры прошёл бы проверку
+            // «не пусто» и всплыл бы позже недоступным хостом.
             value = tempValue.trim()
             prefs.putString(keyRes, value)
             onValueChange?.invoke(value)
@@ -237,14 +235,12 @@ fun ListPreference(
     LaunchedEffect(recomposeKey) {
         recomposeKey?.let { value = prefs.getString(keyRes) ?: entryValues.firstOrNull() ?: "" }
     }
-    // Reset dialog state when recomposeKey changes (e.g., when navigating away)
-    // This ensures dialogs are closed when the screen is navigated away from
+    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана
     var showDialog by remember(recomposeKey) { mutableStateOf(false) }
 
-    // Close dialog when component is disposed (e.g., when navigating away)
+    // Закрываем диалог, когда компонент уходит из композиции
     DisposableEffect(Unit) {
         onDispose {
-            // Force close dialog when leaving the screen
             showDialog = false
         }
     }

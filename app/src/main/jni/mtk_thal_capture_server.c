@@ -1,28 +1,28 @@
 /*
- * mtk_thal_capture_server — standalone root binary for MTK screen capture
- * via libthal_capture.so (HIDL client).
+ * mtk_thal_capture_server — отдельный root-бинарник для захвата экрана на MediaTek
+ * через libthal_capture.so (клиент HIDL).
  *
- * Uses do_capture_window() which talks to vendor.mediatek.hardware.capture@1.0
- * HIDL service. Captures from the display pipeline (video + OSD blended)
- * with hardware DIP — minimal CPU overhead.
+ * Использует do_capture_window(), который обращается к HIDL-сервису
+ * vendor.mediatek.hardware.capture@1.0. Снимает прямо с конвейера дисплея (видео вместе
+ * с экранным меню) аппаратным DIP — процессор почти не нагружается.
  *
- * Supports two modes with automatic fallback:
- *   1. Android mode: normal capture (CapPoint from render HAL)
- *   2. HDMI mode:    patched capture (forced CapPoint=9, security bypass)
+ * Поддерживает два режима с автоматическим переключением:
+ *   - режим Android: обычный захват (CapPoint от render HAL)
+ *   - режим HDMI:    захват с патчем (принудительный CapPoint=9, обход проверки безопасности)
  *
- * Requirements:
- *   - Root access (su)
- *   - /dev/dma_heap/mtk_dip_capture_uncached must be writable (chmod 666)
+ * Требуется:
+ *   - root-доступ (su)
+ *   - /dev/dma_heap/mtk_dip_capture_uncached с правом записи (chmod 666)
  *   - LD_LIBRARY_PATH=/vendor/lib:/system/lib
- *   - 32-bit ARM binary (armeabi-v7a) — all vendor libs are 32-bit
+ *   - 32-битный бинарник ARM (armeabi-v7a) — все библиотеки вендора 32-битные
  *
- * Protocol (stdout, binary):
- *   Per frame:
- *     4 bytes LE: width
- *     4 bytes LE: height
- *     width * height * 3 bytes: RGB data
+ * Формат вывода (stdout, двоичный), на каждый кадр:
  *
- * Usage: mtk_thal_capture_server <width> <height> <fps>
+ *     4 байта LE: ширина
+ *     4 байта LE: высота
+ *     ширина * высота * 3 байта: данные RGB
+ *
+ * Запуск: mtk_thal_capture_server <width> <height> <fps>
  */
 
 #include <stdio.h>
@@ -49,7 +49,7 @@
 #define LOGE(...) do { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
 #endif
 
-/* DMA heap allocation */
+/* Выделение памяти из DMA heap */
 struct dma_heap_allocation_data {
     __u64 len;
     __u32 fd;
@@ -61,20 +61,20 @@ struct dma_heap_allocation_data {
 #define DMA_HEAP_PATH "/dev/dma_heap/mtk_dip_capture_uncached"
 
 /*
- * do_capture_window signature (reverse-engineered from libthal_capture.so):
+ * Сигнатура do_capture_window, восстановленная из libthal_capture.so:
  *   int do_capture_window(
  *       int window_id,    // 0
  *       int capture_type, // 0
  *       int crop_x,       // 0
  *       int crop_y,       // 0
- *       int crop_w,       // must equal output_w
- *       int crop_h,       // must equal output_h
+ *       int crop_w,       // должно совпадать с output_w
+ *       int crop_h,       // должно совпадать с output_h
  *       int output_w,
  *       int output_h,
- *       int buffer_fd,    // DMA-buf fd from mtk_dip_capture_uncached
+ *       int buffer_fd,    // дескриптор DMA-buf из mtk_dip_capture_uncached
  *       int buffer_size   // output_w * output_h * 4 (RGBA)
  *   );
- *   Returns: 0 = success
+ *   Возвращает 0 при успехе.
  */
 typedef int (*fn_do_capture_window)(int, int, int, int, int, int, int, int, int, int);
 
@@ -118,19 +118,19 @@ static int alloc_dma_buf(int size) {
 }
 
 /*
- * HDMI capture patch state.
+ * Состояние патча для захвата HDMI.
  *
- * libthal_capture.so blocks HDMI input capture via a bIsSecurity check
- * (returns ret=3) and the HIDL service rejects HDMI-specific CapPoints.
- * We patch do_capture_window() in-memory: replace the security check with
- * forced CapPoint=9 (STREAM_ALL_VIDEO) + unconditional branch.
+ * libthal_capture.so блокирует захват входа HDMI проверкой bIsSecurity (возвращает ret=3),
+ * а HIDL-сервис отвергает CapPoint, специфичные для HDMI. Мы правим do_capture_window()
+ * прямо в памяти: заменяем проверку безопасности на принудительный CapPoint=9
+ * (STREAM_ALL_VIDEO) и безусловный переход.
  *
- * The patch is applied once at startup but capture mode switches dynamically:
- *   - Android mode: use do_capture_window with window=0 (normal)
- *   - HDMI mode:    use do_capture_window with window=0 (patch handles the rest)
+ * Патч накладывается один раз при старте, но режим захвата переключается на ходу:
+ *   - режим Android: do_capture_window с window=0 (как обычно)
+ *   - режим HDMI:    do_capture_window с window=0 (остальное берёт на себя патч)
  *
- * Fallback logic: if Android capture fails N times in a row, switch to HDMI
- * mode. Periodically probe Android mode to switch back when available.
+ * Логика переключения: если захват Android подряд не удаётся N раз, уходим в режим HDMI
+ * и периодически пробуем Android снова, чтобы вернуться, когда он заработает.
  */
 
 #define HDMI_PATCH_SIZE 6
@@ -143,7 +143,7 @@ static const uint8_t hdmi_patch_bytes[HDMI_PATCH_SIZE] =
 static uint8_t hdmi_patch_original[HDMI_PATCH_SIZE];
 static uint8_t *hdmi_patch_addr = NULL;
 
-/* Find the patch site in do_capture_window, save original bytes */
+/* Ищем место патча в do_capture_window и сохраняем исходные байты */
 static void hdmi_patch_init(fn_do_capture_window do_capture) {
     uint8_t *func = (uint8_t *)((uintptr_t)do_capture & ~1u);
 
@@ -189,9 +189,9 @@ static void enable_dip_debug(void) {
     }
 }
 
-/* How many consecutive failures before switching to HDMI mode */
+/* Сколько неудач подряд до перехода в режим HDMI */
 #define FALLBACK_THRESHOLD 5
-/* How often (in ms) to probe Android mode while in HDMI mode */
+/* Как часто (в мс) пробовать режим Android, находясь в режиме HDMI */
 #define PROBE_INTERVAL_MS 500
 
 int main(int argc, char *argv[]) {
@@ -211,27 +211,27 @@ int main(int argc, char *argv[]) {
     }
 
     /*
-     * do_capture_window crops a pixel region from the SurfaceFlinger compose
-     * buffer (1920x1080 on this TV). Requesting smaller output doesn't
-     * downscale — it just crops the top-left corner.
+     * do_capture_window вырезает область пикселей из буфера композиции SurfaceFlinger
+     * (на этом телевизоре 1920x1080). Запрос меньшего размера не уменьшает картинку —
+     * он просто обрезает левый верхний угол.
      *
-     * Strategy: always capture the full screen at 1920x1080, then downscale
-     * to the requested size in software before sending through the pipe.
-     * This keeps pipe bandwidth low for LED-grid sizes (e.g., 30x18).
+     * Поэтому всегда снимаем весь экран в 1920x1080, а уменьшаем программно уже перед
+     * отправкой в канал. Для размеров под сетку светодиодов (например, 30x18) это держит
+     * поток данных небольшим.
      */
     #define CAP_W 1920
     #define CAP_H 1080
 
     /*
-     * Output size — what we send through the pipe.
-     * Enforce minimum 240p (426x240) to keep the aspect ratio and ensure
-     * enough pixel data for good LED color sampling. The app's LED mapper
-     * handles the final reduction to the LED grid.
+     * Выходной размер — то, что уходит в канал.
+     * Держим минимум 240p (426x240): так сохраняются пропорции и остаётся достаточно
+     * пикселей для выборки цветов. Окончательное сведение к сетке светодиодов делает
+     * само приложение.
      */
     int out_w = req_width;
     int out_h = req_height;
     if (out_w < 426 || out_h < 240) {
-        /* Scale up preserving aspect ratio to at least 240p */
+        /* Увеличиваем с сохранением пропорций хотя бы до 240p */
         float scale = 1.0f;
         if (out_w > 0 && out_h > 0) {
             float sw = 426.0f / out_w;
@@ -243,7 +243,7 @@ int main(int argc, char *argv[]) {
         if (out_w < 426) out_w = 426;
         if (out_h < 240) out_h = 240;
     }
-    /* Ensure even */
+    /* Приводим к чётному */
     out_w = (out_w + 1) & ~1;
     out_h = (out_h + 1) & ~1;
 
@@ -253,7 +253,7 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
-    /* Load libthal_capture.so */
+    /* Загружаем libthal_capture.so */
     void *lib = dlopen("libthal_capture.so", RTLD_NOW);
     if (!lib) lib = dlopen("/vendor/lib/libthal_capture.so", RTLD_NOW);
     if (!lib) {
@@ -269,11 +269,11 @@ int main(int argc, char *argv[]) {
         return 3;
     }
 
-    /* Prepare HDMI patch (find site + save original bytes, don't apply yet) */
+    /* Готовим патч HDMI: находим место и сохраняем исходные байты, но пока не применяем */
     hdmi_patch_init(do_capture);
     enable_dip_debug();
 
-    /* Allocate DMA buffer for full-screen RGBA capture */
+    /* Выделяем буфер DMA под полноэкранный захват в RGBA */
     int rgba_size = CAP_W * CAP_H * 4;
     int buf_fd = alloc_dma_buf(rgba_size);
     if (buf_fd < 0) {
@@ -290,9 +290,9 @@ int main(int argc, char *argv[]) {
     }
 
     /*
-     * Local copy of the captured frame. The DIP writes to the DMA buffer
-     * which may be uncached/volatile — copying to a regular heap buffer
-     * ensures we read a consistent snapshot.
+     * Локальная копия снятого кадра. DIP пишет в буфер DMA, который может быть
+     * некэшируемым и меняться под руками, поэтому копирование в обычную память кучи
+     * гарантирует, что мы читаем согласованный снимок.
      */
     uint8_t *rgba_copy = (uint8_t *)malloc(rgba_size);
     if (!rgba_copy) {
@@ -303,7 +303,7 @@ int main(int argc, char *argv[]) {
         return 6;
     }
 
-    /* Pre-allocate RGB output buffer (at requested size) */
+    /* Заранее выделяем выходной буфер RGB (запрошенного размера) */
     int rgb_size = out_w * out_h * 3;
     uint8_t *rgb_buf = (uint8_t *)malloc(rgb_size);
     if (!rgb_buf) {
@@ -315,17 +315,17 @@ int main(int argc, char *argv[]) {
         return 6;
     }
 
-    /* Warm-up capture */
+    /* Прогревочный захват */
     do_capture(0, 0, 0, 0, CAP_W, CAP_H, CAP_W, CAP_H, buf_fd, rgba_size);
 
     LOGI("Capture started: capture %dx%d, output %dx%d @ %d fps",
          CAP_W, CAP_H, out_w, out_h, fps);
 
     /*
-     * Status header (sent once before frames):
-     *   4 bytes LE: magic 0x4D544B53 ("MTKS")
-     *   4 bytes LE: flags (bit 0 = HDMI patch available)
-     * The app reads this to detect HDMI capture capability.
+     * Заголовок состояния (отправляется один раз перед кадрами):
+     *   4 байта LE: сигнатура 0x4D544B53 ("MTKS")
+     *   4 байта LE: флаги (бит 0 — доступен патч HDMI)
+     * По нему приложение понимает, поддерживается ли захват HDMI.
      */
     {
         uint32_t status_header[2];
@@ -348,7 +348,7 @@ int main(int argc, char *argv[]) {
     while (g_running) {
         clock_gettime(CLOCK_MONOTONIC, &ts_start);
 
-        /* Check if parent is still alive */
+        /* Проверяем, жив ли ещё родительский процесс */
         struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN | POLLHUP };
         if (poll(&pfd, 1, 0) > 0 && (pfd.revents & (POLLHUP | POLLERR))) {
             LOGI("Parent disconnected");
@@ -356,9 +356,9 @@ int main(int argc, char *argv[]) {
         }
 
         /*
-         * In HDMI mode, periodically probe Android capture:
-         * revert the patch, try one capture, and if it works — stay in
-         * Android mode. If it fails — re-apply patch and continue HDMI.
+         * В режиме HDMI периодически пробуем захват Android: снимаем патч, делаем один
+         * снимок и, если он удался, остаёмся в режиме Android. Если нет — возвращаем
+         * патч и продолжаем в режиме HDMI.
          */
         if (hdmi_mode) {
             long probe_elapsed_ms = (ts_start.tv_sec - ts_last_probe.tv_sec) * 1000L +
@@ -372,10 +372,10 @@ int main(int argc, char *argv[]) {
                     hdmi_mode = 0;
                     consecutive_errors = 0;
                     LOGI("Android capture restored, leaving HDMI mode");
-                    /* Use this frame — fall through to processing */
+                    /* Кадр годный — идём дальше по обычному пути обработки */
                     goto process_frame;
                 }
-                /* Probe failed, re-apply patch */
+                /* Проба не удалась, возвращаем патч */
                 hdmi_patch_apply();
             }
         }
@@ -386,12 +386,12 @@ int main(int argc, char *argv[]) {
             consecutive_errors++;
 
             if (!hdmi_mode && consecutive_errors >= FALLBACK_THRESHOLD) {
-                /* Switch to HDMI mode */
+                /* Переходим в режим HDMI */
                 if (hdmi_patch_apply() == 0) {
                     hdmi_mode = 1;
                     clock_gettime(CLOCK_MONOTONIC, &ts_last_probe);
                     LOGI("Switching to HDMI capture mode after %d errors", consecutive_errors);
-                    /* Retry immediately with patch applied */
+                    /* Сразу пробуем ещё раз, уже с наложенным патчем */
                     continue;
                 }
             }
@@ -407,10 +407,10 @@ int main(int argc, char *argv[]) {
         consecutive_errors = 0;
 
 process_frame:
-        /* Snapshot: copy DMA buffer to local memory immediately */
+        /* Снимок: сразу копируем буфер DMA в обычную память */
         memcpy(rgba_copy, dma_buf, rgba_size);
 
-        /* Downscale RGBA 1920x1080 → RGB out_w x out_h using nearest-neighbor */
+        /* Уменьшаем RGBA 1920x1080 → RGB out_w x out_h методом ближайшего соседа */
         const uint8_t *src = rgba_copy;
         for (int y = 0; y < out_h; y++) {
             int sy = y * CAP_H / out_h;
@@ -424,12 +424,12 @@ process_frame:
             }
         }
 
-        /* Write frame: header + RGB data */
+        /* Пишем кадр: заголовок и данные RGB */
         uint32_t header[2] = { (uint32_t)out_w, (uint32_t)out_h };
         if (write_all(STDOUT_FILENO, header, 8) < 0) break;
         if (write_all(STDOUT_FILENO, rgb_buf, rgb_size) < 0) break;
 
-        /* Pace to target FPS */
+        /* Выдерживаем заданную частоту кадров */
         clock_gettime(CLOCK_MONOTONIC, &ts_end);
         long elapsed_us = (ts_end.tv_sec - ts_start.tv_sec) * 1000000L +
                           (ts_end.tv_nsec - ts_start.tv_nsec) / 1000L;

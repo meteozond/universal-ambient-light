@@ -7,10 +7,10 @@ import java.security.PrivateKey
 import java.security.cert.Certificate
 
 /**
- * Wireless ADB connection for Android 11+ (TLS + pairing-by-code), backed by
- * libadb-android. Connects to this device's own ADB daemon over loopback.
+ * Беспроводное подключение по ADB для Android 11+ (TLS и сопряжение по коду) на базе
+ * libadb-android. Подключается к собственному демону ADB устройства через loopback.
  *
- * Legacy devices (API < 30) keep using the dadb/RSA path inside the encoders.
+ * На старых устройствах (API < 30) энкодеры продолжают ходить путём dadb/RSA.
  */
 class AppAdbConnectionManager private constructor(context: Context) : AbsAdbConnectionManager() {
 

@@ -29,7 +29,7 @@ class ScreenEncoder(
     private val mOptions: AppOptions,
 ) : ScreenEncoderBase(listener, projection, screenWidth, screenHeight, density, mOptions) {
 
-    // Capture components
+    // Компоненты захвата
     private var mVirtualDisplay: VirtualDisplay? = null
     private var mImageReader: ImageReader? = null
     private var mCaptureThread: HandlerThread? = null
@@ -47,7 +47,7 @@ class ScreenEncoder(
     private var mBorderY: Int = 0
     private var mFrameCount: Int = 0
 
-    // Performance profiling
+    // Замеры производительности
     private var mProfileFrames: Int = 0
     private var mTotalLoopTime: Long = 0
     private var mTotalCaptureTime: Long = 0
@@ -65,7 +65,7 @@ class ScreenEncoder(
             captureFrame()
             val end = System.nanoTime()
 
-            // Profiling loop time
+            // Замер времени цикла
             val elapsedNs = end - start
             val elapsedMs = elapsedNs / 1_000_000L
             mTotalLoopTime += elapsedNs
@@ -75,7 +75,7 @@ class ScreenEncoder(
             if (now - mLastLogTime >= 2000) { // Log every 2 seconds
                 if (mProfileFrames > 0) {
                     val fps = mProfileFrames * 1000f / (now - mLastLogTime)
-                    // Averages in ms
+                    // Средние значения в миллисекундах
                     val avgLoop = (mTotalLoopTime / mProfileFrames) / 1_000_000f
                     val avgCapture = (mTotalCaptureTime / mProfileFrames) / 1_000_000f
                     val avgProcess = (mTotalProcessTime / mProfileFrames) / 1_000_000f
@@ -97,8 +97,8 @@ class ScreenEncoder(
                 mTotalSendTime = 0
             }
 
-            // Capture to local var to avoid race condition: stopInternal() may null
-            // mCaptureHandler on another thread between the null-check and the !! unwrap.
+            // Берём в локальную переменную, чтобы не поймать гонку: stopInternal() из другого
+            // потока может обнулить mCaptureHandler между проверкой и использованием.
             val handler = mCaptureHandler
             if (mRunning && handler != null) {
                 val delayMs = max(1L, mFrameIntervalMs - elapsedMs)
@@ -141,18 +141,18 @@ class ScreenEncoder(
         } catch (e: MediaCodec.CodecException) {
             Log.e(TAG, "Init failed", e)
         } catch (e: SecurityException) {
-            // MediaProjection token expired or revoked by system
+            // Токен MediaProjection истёк или отозван системой
             Log.e(TAG, "Init failed: MediaProjection token invalid", e)
             throw e // Re-throw so restartEncoderFromSavedProjection can handle it
         }
     }
 
     private fun initCaptureDimensions() {
-        // Use user-configured capture quality
+        // Берём качество захвата из настроек
         var quality = mOptions.captureQuality
         if (quality <= 0) quality = 128 // fallback
 
-        // Use REAL screen dimensions, not the scaled-down ones from base class
+        // Работаем с настоящими размерами экрана, а не с уменьшенными из базового класса
         val screenWidth = getScreenWidth()
         val screenHeight = getScreenHeight()
 
@@ -161,12 +161,12 @@ class ScreenEncoder(
             "initCaptureDimensions: quality=$quality, screenWidth=$screenWidth, screenHeight=$screenHeight"
         )
 
-        // Calculate aspect ratio from real screen dimensions
+        // Пропорции считаем по настоящим размерам экрана
         val ratio = screenWidth.toFloat() / screenHeight
         Log.d(TAG, "initCaptureDimensions: ratio=$ratio")
 
         val (w, h) = if (quality <= 512) {
-            // Legacy behaviour: treat quality as max capture width in pixels
+            // Историческое поведение: качество означает максимальную ширину захвата в пикселях
             val targetWidth = min(screenWidth, quality)
             val targetHeight = (targetWidth / ratio).toInt()
             Log.d(
@@ -175,8 +175,8 @@ class ScreenEncoder(
             )
             targetWidth to targetHeight
         } else {
-            // New behaviour for "p" presets (720p/1080p/1440p/2160p):
-            // treat quality as target VERTICAL resolution, keep aspect ratio from real screen.
+            // Новое поведение для пресетов с «p» (720p/1080p/1440p/2160p): качество задаёт
+            // целевую высоту, а пропорции берутся от настоящего экрана.
             val targetHeight = min(screenHeight, quality)
             val targetWidth = (targetHeight * ratio).toInt()
             Log.d(
@@ -186,7 +186,7 @@ class ScreenEncoder(
             targetWidth to targetHeight
         }
 
-        // Ensure even dimensions and sane minimum size
+        // Размеры делаем чётными и не меньше разумного минимума
         mCaptureWidth = max(32, w and 1.inv())
         mCaptureHeight = max(32, h and 1.inv())
 
@@ -218,15 +218,15 @@ class ScreenEncoder(
 
         mMediaProjection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                // Important for Android/Google TV: MediaProjection may call onStop() when screen goes to sleep.
-                // Don't disconnect from WLED/Hyperion, otherwise WLED quickly returns to default effect
-                // and won't reconnect without manual restart.
+                // Важно для Android и Google TV: MediaProjection может вызвать onStop() при уходе
+                // экрана в сон. От WLED/Hyperion при этом не отключаемся, иначе WLED быстро вернётся
+                // к своему эффекту и без ручного перезапуска не подключится обратно.
                 stopInternal(disconnect = false)
             }
         }, mHandler)
 
-        // createVirtualDisplay may throw SecurityException if MediaProjection token expired or was revoked.
-        // Exception is re-thrown so restartEncoderFromSavedProjection can handle it and clear saved projection data.
+        // createVirtualDisplay может бросить SecurityException, если токен MediaProjection истёк или отозван.
+        // Пробрасываем исключение дальше, чтобы restartEncoderFromSavedProjection сбросил сохранённые данные проекции.
         mVirtualDisplay = mMediaProjection.createVirtualDisplay(
             TAG,
             mCaptureWidth, mCaptureHeight, mDensity,
@@ -463,14 +463,14 @@ class ScreenEncoder(
 
         mCaptureHandler?.removeCallbacksAndMessages(null)
 
-        // Release VirtualDisplay first to stop new frames being written to the surface
+        // Сначала освобождаем VirtualDisplay, чтобы в поверхность перестали писать новые кадры
         mVirtualDisplay?.release()
         mVirtualDisplay = null
 
-        // Close ImageReader BEFORE quitting the handler looper.
-        // ImageReader.close() touches native Binder-backed buffers; closing it after the
-        // looper is gone can cause a deadlock in FinalizerDaemon (BinderInternal$GcWatcher
-        // timed out) because the native finalizer cannot acquire the required Binder lock.
+        // ImageReader закрываем ДО остановки looper'а. ImageReader.close() трогает нативные
+        // буферы поверх Binder, и закрытие после исчезновения looper'а приводит к взаимоблокировке
+        // в FinalizerDaemon (BinderInternal$GcWatcher timed out): нативный финализатор не может
+        // взять нужную блокировку Binder.
         mImageReader?.close()
         mImageReader = null
 
@@ -484,10 +484,10 @@ class ScreenEncoder(
         mBorderY = 0
         mFrameCount = 0
 
-        // quitSafely + join to ensure the thread is fully stopped before resources are GC'd
+        // quitSafely и join, чтобы поток точно остановился до сборки ресурсов
         stopHandlerThread()
 
-        // Keep connection alive on system stop (sleep) to prevent WLED from reverting to default effect
+        // При системной остановке (сон) соединение держим, иначе WLED вернётся к своему эффекту
         if (disconnect) {
             clearAndDisconnect()
         } else {
@@ -517,7 +517,7 @@ class ScreenEncoder(
 
     @Synchronized
     override fun setOrientation(orientation: Int) {
-        // Capture to a local so concurrent stopInternal() can't release between checks and use.
+        // Берём в локальную переменную, чтобы параллельный stopInternal() не освободил объект между проверкой и использованием.
         val virtualDisplay = mVirtualDisplay ?: return
         if (orientation == mCurrentOrientation) return
 
@@ -534,7 +534,7 @@ class ScreenEncoder(
         try {
             virtualDisplay.resize(mCaptureWidth, mCaptureHeight, mDensity)
         } catch (e: IllegalStateException) {
-            // Already released — encoder is being torn down; abort the orientation flip.
+            // Уже освобождён — энкодер останавливают, смену ориентации прерываем.
             Log.w(TAG, "setOrientation: VirtualDisplay released mid-flight: ${e.message}")
             return
         }

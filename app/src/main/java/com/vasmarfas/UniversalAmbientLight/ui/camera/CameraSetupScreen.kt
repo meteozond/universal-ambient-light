@@ -79,7 +79,7 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
     val prefs = remember { Preferences(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Dynamic camera permission state
+    // Состояние разрешения на камеру, меняется по ходу работы
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -87,21 +87,20 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
         )
     }
 
-    // Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
     }
 
-    // Request permission on first composition if not granted
+    // При первой отрисовке запрашиваем разрешение, если его ещё нет
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
-    // Offset has no built-in Saver, so define one and survive config changes.
+    // У Offset нет готового Saver, поэтому пишем свой — иначе углы теряются при смене конфигурации.
     val offsetSaver = remember {
         listSaver<Offset, Float>(
             save = { listOf(it.x, it.y) },
@@ -134,7 +133,7 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
         )
     }
 
-    // Load saved corners
+    // Загружаем сохранённые углы
     LaunchedEffect(Unit) {
         val saved = prefs.getString(R.string.pref_key_camera_corners, null)
         val corners = CameraEncoder.parseCornersString(saved)
@@ -144,7 +143,7 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
         bottomLeft = Offset(corners[6], corners[7])
     }
 
-    // Currently dragged corner index (0-3) or -1
+    // Индекс перетаскиваемого угла (0-3) либо -1
     var dragCorner by remember { mutableIntStateOf(-1) }
 
     Scaffold(
@@ -157,7 +156,6 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
                     }
                 },
                 actions = {
-                    // Reset button
                     IconButton(onClick = {
                         topLeft = Offset(0.1f, 0.1f)
                         topRight = Offset(0.9f, 0.1f)
@@ -169,7 +167,6 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
                             contentDescription = stringResource(R.string.camera_setup_reset)
                         )
                     }
-                    // Save button
                     IconButton(onClick = {
                         val cornersArray = floatArrayOf(
                             topLeft.x, topLeft.y,
@@ -204,7 +201,7 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
                 .padding(padding)
         ) {
             if (!hasCameraPermission) {
-                // Show permission request UI
+                // Экран запроса разрешения
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -224,12 +221,10 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
                     }
                 }
             } else {
-                // Camera Preview
                 CameraPreviewView(lifecycleOwner)
 
-                // Corner overlay with dragging support
-                // Using inline Canvas with direct state access so pointerInput
-                // always reads the latest MutableState values (no stale closures).
+                // Слой с углами и перетаскиванием. Canvas объявлен здесь же, чтобы pointerInput
+                // всегда читал свежие значения MutableState, а не устаревшее замыкание.
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -283,7 +278,7 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
                     drawCornersOverlay(topLeft, topRight, bottomRight, bottomLeft, dragCorner)
                 }
 
-                // Instruction text at bottom
+                // Подсказка внизу экрана
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -306,8 +301,8 @@ fun CameraSetupScreen(onBackClick: () -> Unit) {
 }
 
 /**
- * Draws the corner overlay quad + markers.
- * Pure drawing function used inside Canvas DrawScope.
+ * Рисует четырёхугольник по углам и маркеры на них.
+ * Чистая функция отрисовки, вызывается внутри DrawScope у Canvas.
  */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornersOverlay(
     topLeft: Offset,
@@ -324,11 +319,11 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornersOverlay(
     val br = Offset(bottomRight.x * w, bottomRight.y * h)
     val bl = Offset(bottomLeft.x * w, bottomLeft.y * h)
 
-    // Semi-transparent overlay
+    // Полупрозрачная заливка поверх превью
     val overlayColor = Color.Black.copy(alpha = 0.4f)
     drawRect(overlayColor)
 
-    // Quad path
+    // Контур четырёхугольника
     val quadPath = Path().apply {
         moveTo(tl.x, tl.y)
         lineTo(tr.x, tr.y)
@@ -337,14 +332,14 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornersOverlay(
         close()
     }
 
-    // Fill quad lighter
+    // Внутри четырёхугольника заливка светлее
     drawPath(quadPath, Color.White.copy(alpha = 0.3f))
 
-    // Quad border
+    // Граница четырёхугольника
     val borderColor = Color(0xFF00E676)
     drawPath(quadPath, borderColor, style = Stroke(width = 3f))
 
-    // Corner markers
+    // Маркеры углов
     val cornerRadius = 18f
     val corners = listOf(tl, tr, br, bl)
     val labels = listOf("TL", "TR", "BR", "BL")
@@ -376,10 +371,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornersOverlay(
 }
 
 /**
- * Camera preview that fills the available space.
- * Only binds Preview use case; does NOT call unbindAll(),
- * so the CameraEncoder's ImageAnalysis in the service stays active.
- * When this composable leaves the composition, only our Preview is unbound.
+ * Превью камеры во всю доступную область.
+ * Привязывает только use case Preview и НЕ вызывает unbindAll(), чтобы ImageAnalysis
+ * из CameraEncoder в сервисе продолжал работать. При уходе composable из композиции
+ * отвязывается только наш Preview.
  */
 @Composable
 fun CameraPreviewView(
@@ -408,7 +403,7 @@ fun CameraPreviewView(
                 }
                 previewUseCase = preview
 
-                // Bind only our Preview — do NOT unbindAll()
+                // Привязываем только свой Preview — unbindAll() вызывать нельзя
                 provider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
@@ -420,7 +415,7 @@ fun CameraPreviewView(
         }, ContextCompat.getMainExecutor(context))
 
         onDispose {
-            // Only unbind our own Preview use case
+            // Отвязываем только свой use case Preview
             previewUseCase?.let { uc ->
                 try {
                     boundProvider?.unbind(uc)
@@ -438,12 +433,12 @@ fun CameraPreviewView(
 }
 
 /**
- * Full-screen camera preview background with read-only corners overlay.
- * Used as a background on MainScreen when camera mode is selected.
+ * Полноэкранное превью камеры с углами только для просмотра.
+ * Используется фоном главного экрана, когда выбран режим камеры.
  *
- * @param isCapturing When true, the camera is in use by the service (CameraEncoder),
- *   so we show a dark background with corners + pulsing indicator instead of live preview.
- *   When false, we show the live camera preview for calibration.
+ * @param isCapturing true — камеру уже занял сервис (CameraEncoder), поэтому вместо живого
+ *   превью показываем тёмный фон с углами и пульсирующим индикатором. false — показываем
+ *   живое превью для калибровки.
  */
 @Composable
 fun CameraPreviewBackground(isCapturing: Boolean = false) {
@@ -455,7 +450,7 @@ fun CameraPreviewBackground(isCapturing: Boolean = false) {
                 PackageManager.PERMISSION_GRANTED
     }
 
-    // Load saved corners
+    // Загружаем сохранённые углы
     val corners = remember {
         val saved = prefs.getString(R.string.pref_key_camera_corners, null)
         CameraEncoder.parseCornersString(saved)
@@ -467,10 +462,10 @@ fun CameraPreviewBackground(isCapturing: Boolean = false) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (!isCapturing && hasCameraPermission) {
-            // Live camera preview (for calibration before starting)
+            // Живое превью камеры (для калибровки до запуска)
             CameraPreviewView()
         } else {
-            // Dark background: either service is capturing (camera busy) or no permission
+            // Тёмный фон: либо камеру занял сервис, либо нет разрешения
             Spacer(
                 modifier = Modifier
                     .fillMaxSize()
@@ -478,12 +473,12 @@ fun CameraPreviewBackground(isCapturing: Boolean = false) {
             )
         }
 
-        // Read-only corner overlay (no dragging)
+        // Углы только для просмотра, без перетаскивания
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCornersOverlay(topLeft, topRight, bottomRight, bottomLeft)
         }
 
-        // Capturing indicator
+        // Индикатор идущего захвата
         if (isCapturing) {
             val infiniteTransition = rememberInfiniteTransition(label = "capturePulse")
             val alpha by infiniteTransition.animateFloat(

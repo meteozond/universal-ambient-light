@@ -7,16 +7,16 @@ import kotlin.math.pow
 import kotlin.math.round
 
 /**
- * Color correction pipeline:
- *  1) per-channel gamma (R/G/B independent curves)
- *  2) global brightness × per-channel brightness
- *  3) contrast (around 128)
- *  4) saturation (mixes channels — disables the fast LUT path)
- *  5) black/white levels (clip & rescale)
+ * Конвейер цветокоррекции, по порядку:
+ *  - гамма по каналам (независимые кривые R/G/B)
+ *  - общая яркость, помноженная на поканальную
+ *  - контраст (относительно 128)
+ *  - насыщенность (смешивает каналы, поэтому быстрый путь через LUT становится неприменим)
+ *  - уровни чёрного и белого (обрезка и растяжка)
  */
 object ColorProcessor {
 
-    /** Single-pixel variant; kept for non-hot-path callers (e.g. avg-color mode). */
+    /** Вариант для одного пикселя; нужен вызывающим вне горячего пути (например, режиму среднего цвета). */
     fun processColor(
         r: Int,
         g: Int,
@@ -75,11 +75,11 @@ object ColorProcessor {
         )
     }
 
-    /** Bulk in-place processing on an RGB-packed byte array. */
+    /** Массовая обработка на месте по массиву байт с упакованным RGB. */
     fun processRgbData(rgbData: ByteArray, options: AppOptions) {
         if (!options.colorProcessingEnabled) return
 
-        // Fast bail-out when nothing would change.
+        // Быстрый выход, если менять всё равно нечего.
         if (options.brightness == 100 &&
             options.contrast == 100 &&
             options.blackLevel == 0 &&
@@ -89,7 +89,7 @@ object ColorProcessor {
             options.gammaR == 100 && options.gammaG == 100 && options.gammaB == 100
         ) return
 
-        // Saturation mixes channels → LUT path is invalid; fall through to per-pixel below.
+        // Насыщенность смешивает каналы → путь через LUT неприменим, уходим на попиксельный ниже.
         if (options.saturation == 100) {
             val rLut = buildChannelLut(options, options.brightnessR, options.gammaR)
             val gLut = buildChannelLut(options, options.brightnessG, options.gammaG)
@@ -106,7 +106,7 @@ object ColorProcessor {
             return
         }
 
-        // Slow per-pixel path (saturation mixes channels, can't use per-channel LUTs).
+        // Медленный попиксельный путь (насыщенность смешивает каналы, поканальные LUT не подходят).
         val globalFactor = options.brightness / 100f
         val rFactor = globalFactor * (options.brightnessR / 100f)
         val gFactor = globalFactor * (options.brightnessG / 100f)
@@ -118,7 +118,7 @@ object ColorProcessor {
         val range = whiteThreshold - blackThreshold
         val rangeFactor = if (range > 0) 255f / range else 0f
 
-        // Gamma LUTs reused per-pixel to avoid Math.pow per channel per pixel.
+        // Таблицы гаммы переиспользуются, чтобы не звать Math.pow на каждый канал каждого пикселя.
         val rGammaLut = buildGammaLut(options.gammaR)
         val gGammaLut = buildGammaLut(options.gammaG)
         val bGammaLut = buildGammaLut(options.gammaB)
@@ -142,7 +142,7 @@ object ColorProcessor {
                 b = 128f + (b - 128f) * contrastFactor
             }
 
-            // Saturation (luminance preserved across all three channels).
+            // Насыщенность (яркость по всем трём каналам сохраняется).
             val lum = 0.299f * r + 0.587f * g + 0.114f * b
             r = lum + (r - lum) * saturationFactor
             g = lum + (g - lum) * saturationFactor
@@ -168,8 +168,8 @@ object ColorProcessor {
     }
 
     /**
-     * Per-channel LUT used by the fast path. Encodes: gamma → channel × global brightness
-     * → contrast → black/white levels. Saturation is NOT included (channel-mixing op).
+     * Поканальная таблица для быстрого пути. Учитывает гамму, поканальную и общую яркость,
+     * контраст и уровни чёрного и белого. Насыщенности в ней НЕТ — она смешивает каналы.
      */
     private fun buildChannelLut(
         options: AppOptions,
@@ -194,7 +194,7 @@ object ColorProcessor {
         return lut
     }
 
-    /** Single-value gamma; used by [processColor] which is not on the hot path. */
+    /** Гамма для одного значения; используется в [processColor], который не на горячем пути. */
     private fun applyGamma(value: Float, gammaPct: Int): Float {
         if (gammaPct == 100) return value
         val safePct = gammaPct.coerceIn(MIN_GAMMA_PCT, MAX_GAMMA_PCT)
@@ -203,7 +203,7 @@ object ColorProcessor {
         return (norm * 255.0).toFloat()
     }
 
-    /** out = 255 * (in/255)^(100/gamma_pct). gamma_pct = 100 → identity. */
+    /** out = 255 * (in/255)^(100/gamma_pct); при gamma_pct = 100 значение не меняется. */
     private fun buildGammaLut(gammaPct: Int): FloatArray {
         val out = FloatArray(256)
         if (gammaPct == 100) {

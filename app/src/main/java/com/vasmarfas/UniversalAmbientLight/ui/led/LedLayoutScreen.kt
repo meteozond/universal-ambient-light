@@ -441,7 +441,7 @@ fun LedLayoutScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                // Left Side: Visualization (Fixed)
+                // Слева — визуализация (фиксированная)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -483,7 +483,6 @@ fun LedLayoutScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // LED visualization
                     LedVisualization(
                         topLed = topLed,
                         rightLed = rightLed,
@@ -509,7 +508,7 @@ fun LedLayoutScreen(
                     )
                 }
 
-                // Right Side: Settings (Scrollable)
+                // Справа — настройки (с прокруткой)
                 Column(
                     modifier = Modifier
                         .weight(1f)

@@ -25,7 +25,7 @@ class BootActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Launched by USB_DEVICE_ATTACHED — handle USB device attachment
+        // Запуск по USB_DEVICE_ATTACHED — обрабатываем подключение USB-устройства
         if (UsbManager.ACTION_USB_DEVICE_ATTACHED == intent?.action) {
             handleUsbDeviceAttached()
             return
@@ -49,7 +49,7 @@ class BootActivity : AppCompatActivity() {
             }
         }
 
-        // For Adalight: ensure USB permission BEFORE starting any capture mode
+        // Для Adalight разрешение на USB получаем ДО запуска любого режима захвата
         if ("adalight".equals(connectionType, ignoreCase = true)) {
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this,
@@ -73,9 +73,9 @@ class BootActivity : AppCompatActivity() {
     }
 
     /**
-     * Handles launch from USB_DEVICE_ATTACHED intent.
-     * If connection type is adalight: ensures USB permission for the attached device.
-     * If auto-boot is enabled: starts the capture service.
+     * Обрабатывает запуск по интенту USB_DEVICE_ATTACHED.
+     * Для Adalight добивается разрешения на подключённое устройство.
+     * Если включён автозапуск, поднимает сервис захвата.
      */
     private fun handleUsbDeviceAttached() {
         val prefs = Preferences(this)
@@ -98,7 +98,7 @@ class BootActivity : AppCompatActivity() {
             context = this,
             device = device,
             onReady = {
-                // If auto-boot is enabled and lighting was active before reboot, start the capture service
+                // Автозапуск включён и подсветка работала до перезагрузки — поднимаем сервис захвата
                 val autoStart = prefs.getBoolean(R.string.pref_key_boot)
                 val wasActive = prefs.getBoolean(R.string.pref_key_lighting_was_active)
                 if (autoStart && wasActive) {
@@ -145,9 +145,9 @@ class BootActivity : AppCompatActivity() {
         try {
             super.onResume()
         } catch (e: IllegalArgumentException) {
-            // Some firmware (Amazon Fire TV Android 9) throws IAE inside AMS.isTopOfTask
-            // before super.onResume sets mCalled, which would then trigger
-            // SuperNotCalledException. Patch mCalled via reflection and finish cleanly.
+            // Часть прошивок (Amazon Fire TV на Android 9) бросает IAE внутри AMS.isTopOfTask
+            // до того, как super.onResume выставит mCalled, и следом прилетает
+            // SuperNotCalledException. Ставим mCalled рефлексией и закрываемся штатно.
             Log.w(TAG, "onResume: super threw IAE, recovering: ${e.message}")
             try {
                 val field = Activity::class.java.getDeclaredField("mCalled")
@@ -190,11 +190,11 @@ class BootActivity : AppCompatActivity() {
             startForegroundServiceCompat(context, intent)
         }
 
-        // startForegroundService() called from onActivityResult can fail on Android 12+
-        // with ForegroundServiceStartNotAllowedException because onActivityResult is
-        // delivered before the activity is fully foregrounded (mAllowStartForeground = false).
-        // Retry on the next main looper cycle, by which time the system considers the app
-        // foreground again. If the retry also fails, fall back to startService() as last resort.
+        // startForegroundService() из onActivityResult на Android 12+ падает с
+        // ForegroundServiceStartNotAllowedException: onActivityResult приходит раньше, чем
+        // активити окончательно окажется на переднем плане (mAllowStartForeground = false).
+        // Повторяем на следующем цикле главного looper'а, когда система уже считает приложение
+        // активным. Если и это не сработало, в последнюю очередь пробуем startService().
         private fun startForegroundServiceCompat(context: Context, intent: Intent) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                 context.startService(intent)

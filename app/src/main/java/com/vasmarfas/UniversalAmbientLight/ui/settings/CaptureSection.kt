@@ -42,9 +42,8 @@ import com.vasmarfas.UniversalAmbientLight.R
 @Composable
 internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScreenState, onLedLayoutClick: () -> Unit, onCameraSetupClick: () -> Unit) {
     val context = LocalContext.current
-    // Capturing Group
     SettingsGroup(title = stringResource(R.string.pref_group_capturing)) {
-        // Capture Source (Screen / Camera)
+        // Источник захвата: экран или камера
         key(state.captureSource) {
             ListPreference(
                 prefs = prefs,
@@ -60,7 +59,7 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
             )
         }
 
-        // Capture Method (MediaProjection, Screencap, Accessibility)
+        // Метод захвата (MediaProjection, Screencap, Accessibility)
         if (state.captureSource == "screen") {
             ListPreference(
                 prefs = prefs,
@@ -84,13 +83,13 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
                 },
                 onValueChange = { newMethod ->
                     if (newMethod == "accessibility") {
-                        // Check if service is already enabled
+                        // Смотрим, включена ли служба
                         if (AccessibilityCaptureService.getInstance() == null) {
-                            // Show disclosure dialog BEFORE applying fully or opening settings
-                            // Note: ListPreference already saved the value to prefs, so we might need to revert if denied
+                            // Предупреждение показываем ДО применения выбора и открытия настроек.
+                            // ListPreference уже сохранил значение в настройки, поэтому при отказе
                             state.previousCaptureMethod =
                                 state.captureMethod // save old method (which is actually current before update in state)
-                            // Ideally ListPreference shouldn't update automatically, but here we intercept
+                            // его придётся вернуть обратно — здесь мы этот момент и перехватываем.
                             state.showAccessibilityDisclosure = true
                         } else {
                             state.captureMethod = newMethod
@@ -127,7 +126,7 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
             }
         }
 
-        // Camera corner setup (only when camera source is selected)
+        // Настройка углов камеры (только когда выбран источник «камера»)
         if (state.captureSource == "camera") {
             ClickablePreference(
                 title = stringResource(R.string.pref_title_camera_setup),
@@ -182,7 +181,7 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
             }
         )
 
-        // Color processing settings
+        // Настройки цветокоррекции
         CheckBoxPreference(
             prefs = prefs,
             keyRes = R.string.pref_key_color_processing_enabled,
@@ -198,7 +197,7 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
         )
 
         if (state.colorProcessingEnabled) {
-            // Bumped on every per-channel/global color pref change; drives the live preview below.
+            // Увеличивается при каждой правке цвета и обновляет живое превью ниже.
             var colorPrefsVersion by remember { mutableIntStateOf(0) }
 
             EditTextPreference(
@@ -265,7 +264,7 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
                 }
             )
 
-            // Per-channel correction subsection (issue #21).
+            // Поканальная коррекция (issue #21).
             Text(
                 text = stringResource(R.string.pref_group_color_per_channel),
                 style = MaterialTheme.typography.labelLarge,
@@ -323,10 +322,10 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
 }
 
 /**
- * Live preview of the color-processing pipeline.
- * Reads all relevant prefs each time [version] changes (incremented by the
- * surrounding EditTextPreference fields) and renders three pure R/G/B swatches
- * plus a grayscale gradient, all after [ColorProcessor.processColor].
+ * Живое превью конвейера цветокоррекции.
+ * Перечитывает нужные настройки при каждой смене [version] (её увеличивают соседние поля
+ * EditTextPreference) и рисует три чистых образца R/G/B и серый градиент — всё уже после
+ * [ColorProcessor.processColor].
  */
 @Composable
 private fun ColorProcessingPreview(prefs: Preferences, version: Int) {

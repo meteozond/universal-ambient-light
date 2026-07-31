@@ -117,9 +117,9 @@ class QuickTileService : TileService() {
     private val isServiceRunning: Boolean
         get() = ScreenGrabberService.sInstanceRunning
 
-    /** Starts the Settings Activity if connection settings are missing
+    /** Открывает экран настроек, если параметры подключения не заданы
      *
-     * @return true if setup was started
+     * @return true, если настройка была запущена
      */
     private fun startSetupIfNeeded(): Boolean {
         val error = ScreenGrabberService.validateSettings(applicationContext)
@@ -131,7 +131,7 @@ class QuickTileService : TileService() {
             settingsIntent.addCategory(Intent.CATEGORY_LAUNCHER)
             settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-            // Use TaskStackBuilder to make sure the MainActivity opens when the SettingsActivity is closed
+            // TaskStackBuilder нужен, чтобы после закрытия настроек открылась MainActivity
             TaskStackBuilder.create(this)
                 .addNextIntentWithParentStack(settingsIntent)
                 .startActivities()

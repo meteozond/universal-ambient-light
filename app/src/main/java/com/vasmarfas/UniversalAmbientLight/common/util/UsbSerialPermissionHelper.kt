@@ -13,16 +13,16 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 
 /**
- * Helper for requesting USB permission for the first (or specific) USB-Serial device.
+ * Запрашивает разрешение на первое (или конкретное) USB-последовательное устройство.
  *
- * Goals:
- * - Make "one tap start" work from MainActivity/BootActivity/ToggleActivity/QuickTile flows.
- * - Optionally request permission automatically when device is attached while app is in foreground.
+ * Задачи: сделать запуск «в одно касание» из MainActivity, BootActivity, ToggleActivity и
+ * плитки быстрых настроек, а также при желании запрашивать разрешение автоматически, когда
+ * устройство подключают при открытом приложении.
  */
 object UsbSerialPermissionHelper {
     private const val TAG = "UsbSerialPermission"
 
-    // Keep this action stable (already used in MainActivity)
+    // Значение action менять нельзя — оно уже используется в MainActivity
     const val ACTION_USB_PERMISSION = "com.vasmarfas.UniversalAmbientLight.USB_PERMISSION"
 
     @Volatile
@@ -49,12 +49,12 @@ object UsbSerialPermissionHelper {
     }
 
     /**
-     * Ensures USB permission for an Adalight USB-Serial device.
+     * Обеспечивает разрешение на USB-последовательное устройство Adalight.
      *
-     * If permission is already granted -> calls [onReady] immediately.
-     * If not granted -> requests permission and calls [onReady] after user accepts.
+     * Если разрешение уже выдано, [onReady] вызывается сразу; иначе разрешение запрашивается,
+     * и [onReady] вызывается после согласия пользователя.
      *
-     * @return true if already ready (permission granted), false if a request was initiated.
+     * @return true, если всё уже готово, и false, если запрос только начат.
      */
     fun ensurePermissionForSerialDevice(
         context: Context,
@@ -86,7 +86,7 @@ object UsbSerialPermissionHelper {
             return false
         }
 
-        // Avoid prompting for non-serial devices (e.g., random USB accessories)
+        // Не спрашиваем про устройства, не являющиеся последовательными (случайная USB-периферия)
         if (!isSerialDevice(context, target)) {
             onDenied?.invoke()
             return false
@@ -97,7 +97,7 @@ object UsbSerialPermissionHelper {
             return true
         }
 
-        // Try root before the system permission dialog — `su` is blocking, so run async.
+        // Сначала пробуем root, только потом системный диалог; `su` блокирует, поэтому асинхронно.
         if (UsbRootPermissionHelper.isRootAvailable()) {
             if (!force && lastRequestedDeviceId == target.deviceId) return false
             lastRequestedDeviceId = target.deviceId
@@ -106,7 +106,7 @@ object UsbSerialPermissionHelper {
                 if (rootGranted && usbManager.hasPermission(target)) {
                     onReady()
                 } else {
-                    // Clear the rate-limit token so the next user-initiated start can prompt.
+                    // Снимаем метку ограничения частоты, чтобы следующий запуск по кнопке смог спросить.
                     lastRequestedDeviceId = null
                     onDenied?.invoke()
                 }
@@ -114,7 +114,7 @@ object UsbSerialPermissionHelper {
             return false
         }
 
-        // Avoid spamming the same prompt
+        // Не показываем один и тот же запрос по кругу
         if (!force && lastRequestedDeviceId == target.deviceId) {
             return false
         }
@@ -153,7 +153,7 @@ object UsbSerialPermissionHelper {
                 val targetDevice = deviceFromIntent ?: target
                 val grantedByBroadcast =
                     intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                // OEM fallback: some firmware can provide incorrect/missing EXTRA_PERMISSION_GRANTED.
+                // Часть прошивок присылает неверный или пустой EXTRA_PERMISSION_GRANTED — перепроверяем сами.
                 val grantedByManager = usbManager.hasPermission(targetDevice)
                 val granted = grantedByBroadcast || grantedByManager
 
@@ -174,7 +174,7 @@ object UsbSerialPermissionHelper {
             }
         }
 
-        // Register receiver (not exported)
+        // Приёмник регистрируем как неэкспортируемый
         ContextCompat.registerReceiver(
             context,
             receiver,

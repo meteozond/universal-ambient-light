@@ -72,7 +72,7 @@ internal fun LedLayoutSettingsContent(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // LED count inputs per side (order: left, top, right, bottom)
+    // Количество светодиодов по сторонам (порядок: левая, верх, правая, низ)
     OutlinedTextField(
         value = leftLedText,
         onValueChange = onLeftLedTextChange,
@@ -141,7 +141,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(24.dp))
 
-    // LED sides configuration
+    // Какие стороны заведены
     Text(
         text = stringResource(R.string.led_layout_active_sides),
         style = MaterialTheme.typography.titleMedium,
@@ -150,7 +150,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Order: left, top, right, bottom
+    // Порядок: левая, верх, правая, низ
     SideSelectorCard(
         title = stringResource(R.string.led_layout_side_left),
         selectedMode = sideLeft,
@@ -183,7 +183,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Bottom gap
+    // Разрыв снизу
     OutlinedTextField(
         value = bottomGapText,
         onValueChange = onBottomGapTextChange,
@@ -201,7 +201,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Capture margins - separate for each side (order: left, top, right, bottom)
+    // Отступы захвата — свой на каждую сторону (порядок: левая, верх, правая, низ)
     Text(
         text = stringResource(R.string.led_layout_capture_margin_label),
         style = MaterialTheme.typography.titleMedium,
@@ -210,7 +210,6 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Capture margin - left
     OutlinedTextField(
         value = captureMarginLeftText,
         onValueChange = onCaptureMarginLeftTextChange,
@@ -234,7 +233,6 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Capture margin - top
     OutlinedTextField(
         value = captureMarginTopText,
         onValueChange = onCaptureMarginTopTextChange,
@@ -258,7 +256,6 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Capture margin - right
     OutlinedTextField(
         value = captureMarginRightText,
         onValueChange = onCaptureMarginRightTextChange,
@@ -282,7 +279,6 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Capture margin - bottom
     OutlinedTextField(
         value = captureMarginBottomText,
         onValueChange = onCaptureMarginBottomTextChange,
@@ -306,7 +302,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // LED offset along perimeter
+    // Сдвиг светодиодов по периметру
     OutlinedTextField(
         value = ledOffsetText,
         onValueChange = onLedOffsetTextChange,
@@ -330,7 +326,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Scan Depth
+    // Глубина сканирования
     OutlinedTextField(
         value = scanDepthText,
         onValueChange = onScanDepthTextChange,
@@ -354,7 +350,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(24.dp))
 
-    // Start corner selection
+    // Выбор стартового угла
     Text(
         text = stringResource(R.string.pref_title_led_start_corner),
         style = MaterialTheme.typography.titleMedium,
@@ -379,7 +375,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Direction selection
+    // Выбор направления обхода
     Text(
         text = stringResource(R.string.pref_title_led_direction),
         style = MaterialTheme.typography.titleMedium,
@@ -404,7 +400,7 @@ internal fun LedLayoutSettingsContent(
 
     Spacer(modifier = Modifier.height(24.dp))
 
-    // Legend
+    // Легенда
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(

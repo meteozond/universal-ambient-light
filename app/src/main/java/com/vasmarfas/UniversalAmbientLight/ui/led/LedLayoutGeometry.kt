@@ -42,11 +42,9 @@ fun calculateLedPositions(
     val bottomCount = bottomLed.coerceIn(0, MAX_LEDS_PER_SIDE)
     val leftCount = leftLed.coerceIn(0, MAX_LEDS_PER_SIDE)
 
-    // Calculate scan depth in pixels (visual approximation)
-    // We use screenWidth/screenHeight which corresponds to the inner yellow box if 0 margins.
-    // But scan depth is relative to the capture area.
-    // Here we visualize it relative to the "screen" rectangle (gray box).
-    // Let's assume the gray box is the full captured image.
+    // Глубина сканирования в пикселях — визуальное приближение. Здесь она показывается
+    // относительно серого прямоугольника «экрана», который считаем полным снятым кадром;
+    // в самом захвате глубина отсчитывается от области захвата.
     val scanDepthV = (screenHeight * scanDepth / 100f).coerceAtLeast(2f)
     val scanDepthH = (screenWidth * scanDepth / 100f).coerceAtLeast(2f)
 
@@ -59,10 +57,10 @@ fun calculateLedPositions(
     val stepBottom = step(screenWidth, bottomCount)
     val stepLeft = step(screenHeight, leftCount)
 
-    // Determine edge order
+    // Порядок обхода сторон
     val edges = getEdgeOrder(startCorner, direction)
 
-    // Calculate gap range for bottom edge
+    // Диапазон разрыва для нижней стороны
     val gapStart = if (bottomGap > 0 && bottomCount > 0) (bottomCount - bottomGap) / 2 else -1
     val gapEnd = if (bottomGap > 0 && bottomCount > 0) gapStart + bottomGap else -1
 
@@ -75,19 +73,19 @@ fun calculateLedPositions(
             else -> "enabled"
         }
 
-        // Skip if not installed
+        // Пропускаем выключенные стороны
         if (sideMode == "not_installed") continue
 
         when (edge) {
             "top_lr" -> {
-                // Top edge (left to right)
+                // Верх, слева направо
                 for (i in 0 until topCount) {
                     val x = if (topCount <= 1) {
                         padding + screenWidth / 2f
                     } else {
                         padding + i * stepTop + stepTop / 2f
                     }
-                    // For top edge, rect is centered at x, starts at padding (top), height scanDepthV
+                    // Для верхней стороны прямоугольник центрируется по x, начинается от отступа сверху, высота scanDepthV
                     positions.add(
                         LedData(
                             position = Offset(x, padding + scanDepthV / 2f), // Center of rect
@@ -99,7 +97,7 @@ fun calculateLedPositions(
             }
 
             "top_rl" -> {
-                // Top edge (right to left)
+                // Верх, справа налево
                 for (i in 0 until topCount) {
                     val ledIndex = topCount - 1 - i
                     val x = if (topCount <= 1) {
@@ -118,14 +116,14 @@ fun calculateLedPositions(
             }
 
             "right_tb" -> {
-                // Right edge (top to bottom)
+                // Правый край, сверху вниз
                 for (i in 0 until rightCount) {
                     val y = if (rightCount <= 1) {
                         padding + screenHeight / 2f
                     } else {
                         padding + i * stepRight + stepRight / 2f
                     }
-                    // Right edge: rect starts at width-padding-scanDepthH
+                    // Правый край: прямоугольник начинается от width-padding-scanDepthH
                     positions.add(
                         LedData(
                             position = Offset(padding + screenWidth - scanDepthH / 2f, y),
@@ -137,7 +135,7 @@ fun calculateLedPositions(
             }
 
             "right_bt" -> {
-                // Right edge (bottom to top)
+                // Правый край, снизу вверх
                 for (i in 0 until rightCount) {
                     val ledIndex = rightCount - 1 - i
                     val y = if (rightCount <= 1) {
@@ -156,7 +154,7 @@ fun calculateLedPositions(
             }
 
             "bottom_rl" -> {
-                // Bottom edge (right to left)
+                // Низ, справа налево
                 for (i in 0 until bottomCount) {
                     val ledIndex = bottomCount - 1 - i
                     val isInGap =
@@ -166,7 +164,7 @@ fun calculateLedPositions(
                     } else {
                         padding + ledIndex * stepBottom + stepBottom / 2f
                     }
-                    // Bottom edge: rect starts at height-padding-scanDepthV
+                    // Низ: прямоугольник начинается от height-padding-scanDepthV
                     positions.add(
                         LedData(
                             position = Offset(x, padding + screenHeight - scanDepthV / 2f),
@@ -178,7 +176,7 @@ fun calculateLedPositions(
             }
 
             "bottom_lr" -> {
-                // Bottom edge (left to right)
+                // Низ, слева направо
                 for (i in 0 until bottomCount) {
                     val isInGap = bottomGap > 0 && bottomCount > 0 && i >= gapStart && i < gapEnd
                     val x = if (bottomCount <= 1) {
@@ -197,7 +195,7 @@ fun calculateLedPositions(
             }
 
             "left_bt" -> {
-                // Left edge (bottom to top)
+                // Левый край, снизу вверх
                 for (i in 0 until leftCount) {
                     val ledIndex = leftCount - 1 - i
                     val y = if (leftCount <= 1) {
@@ -205,7 +203,7 @@ fun calculateLedPositions(
                     } else {
                         padding + ledIndex * stepLeft + stepLeft / 2f
                     }
-                    // Left edge: rect starts at padding
+                    // Левый край: прямоугольник начинается от отступа
                     positions.add(
                         LedData(
                             position = Offset(padding + scanDepthH / 2f, y),
@@ -217,7 +215,7 @@ fun calculateLedPositions(
             }
 
             "left_tb" -> {
-                // Left edge (top to bottom)
+                // Левый край, сверху вниз
                 for (i in 0 until leftCount) {
                     val y = if (leftCount <= 1) {
                         padding + screenHeight / 2f

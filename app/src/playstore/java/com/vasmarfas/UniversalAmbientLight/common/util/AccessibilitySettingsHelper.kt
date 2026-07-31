@@ -3,9 +3,9 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 import android.content.Context
 
 /**
- * Play Store stub. The "full" flavor opens this app's AccessibilityService settings page;
- * the Google Play flavor has no such service, so this is a no-op. Callers are gated behind
- * BuildConfig.HAS_ACCESSIBILITY / unreachable capture paths in this build.
+ * Заглушка для Google Play. Во флейворе full здесь открывается страница настроек нашей
+ * службы доступности; в сборке для Google Play такой службы нет, поэтому здесь пусто.
+ * Вызовы закрыты проверкой BuildConfig.HAS_ACCESSIBILITY и недостижимыми путями захвата.
  */
 @Suppress("UNUSED_PARAMETER")
 fun openAccessibilitySettings(context: Context) {

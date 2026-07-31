@@ -9,8 +9,8 @@ import java.util.Arrays
 import java.util.Collections
 import kotlin.math.abs
 
-/** Scans the local network for running Hyperion servers
- * Created by nino on 27-5-18.
+/** Ищет в локальной сети запущенные серверы Hyperion.
+ * Автор: nino, 27-5-18.
  */
 class NetworkScanner {
     private val ipsToTry: Array<String>
@@ -20,9 +20,9 @@ class NetworkScanner {
         ipsToTry = getIPsToTry()
     }
 
-    /** Scan the next ip address in the list of addresses to try
+    /** Проверяет следующий адрес из списка.
      *
-     * @return the hostname (or an ip represented as String) when a Hyperion server was found
+     * @return имя хоста (или IP строкой), если сервер Hyperion найден
      */
     @WorkerThread
     fun tryNext(): String? {
@@ -46,9 +46,9 @@ class NetworkScanner {
         return null
     }
 
-    /** An indication of how many of the total ip's have been tried
+    /** Показывает, какая доля адресов уже проверена.
      *
-     * @return progress in in the range [0.0 .. 1.0]
+     * @return прогресс в диапазоне [0.0 .. 1.0]
      */
     val progress: Float
         get() {
@@ -59,7 +59,7 @@ class NetworkScanner {
             return lastTriedIndex / ipsToTry.size.toFloat()
         }
 
-    /** True if not all ip's have been tried yet
+    /** True, пока проверены не все адреса
      *
      */
     fun hasNextAttempt(): Boolean {
@@ -69,13 +69,13 @@ class NetworkScanner {
     companion object {
         const val PORT = 19400
 
-        /** The amount of milliseconds we try to connect to a given ip before giving up  */
+        /** Сколько миллисекунд ждём подключения к адресу, прежде чем сдаться  */
         private const val ATTEMPT_TIMEOUT_MS = 50
 
         /**
-         * Get IP addresses for non-localhost interfaces
-         * @param useIPv4   true=return ipv4, false=return ipv6
-         * @return  a list of found addresses (may be empty)
+         * Возвращает адреса всех интерфейсов, кроме localhost.
+         * @param useIPv4 true — вернуть IPv4, false — IPv6
+         * @return список найденных адресов (может быть пустым)
          *
          * https://stackoverflow.com/a/13007325
          */
@@ -88,7 +88,6 @@ class NetworkScanner {
                     for (addr in addrs) {
                         if (!addr.isLoopbackAddress) {
                             val sAddr = addr.hostAddress
-                            //boolean isIPv4 = InetAddressUtils.isIPv4Address(sAddr);
                             val isIPv4 = sAddr.indexOf(':') < 0
 
                             if (useIPv4) {
@@ -109,7 +108,7 @@ class NetworkScanner {
                     }
                 }
             } catch (e: Exception) {
-                // for now eat exceptions
+                // Ошибки перечисления интерфейсов игнорируем: адрес просто не попадёт в список
                 Log.e("HYPERION SCANNER", "Could not get ip address", e)
             }
             return foundAddresses
@@ -135,7 +134,7 @@ class NetworkScanner {
 
                     val localNumberInSubnet = Integer.parseInt(ipParts[3])
 
-                    // sort in such a way that ips close to the local ip will be tried first
+                    // Сортируем так, чтобы адреса рядом с локальным проверялись первыми
                     Arrays.sort(ipsToTry) { lhs, rhs ->
                         // Массив заполнен целиком циклом выше, null здесь означал бы поломку инварианта
                         val lhsIp = checkNotNull(lhs) { "ipsToTry contains null" }
@@ -154,15 +153,15 @@ class NetworkScanner {
                     }
 
                     for (i in ipsToTry.indices) {
-                        // interleave with previously found ip addresses
+                        // Чередуем с адресами, найденными ранее
                         val allIndex = localIpV4Addresses.size * i + localIpIdx
                         allIpsToTry[allIndex] = ipsToTry[i]
                     }
                 }
 
-                // Some interfaces may have produced fewer than 254 entries (parsing
-                // failures, IPv6-only interfaces, etc.) — filter out null slots so the
-                // unchecked cast doesn't surface NPEs at scan time.
+                // Часть интерфейсов могла дать меньше 254 записей (ошибки разбора, интерфейсы
+                // только с IPv6 и так далее) — убираем пустые ячейки, чтобы непроверяемое
+                // приведение типа не выстрелило NPE во время сканирования.
                 return allIpsToTry.filterNotNull().toTypedArray()
             } catch (e: Exception) {
                 Log.e("HYPERION SCANNER", "Error while building list of subnet ip's", e)

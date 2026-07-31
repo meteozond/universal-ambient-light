@@ -75,7 +75,7 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                 )
             }
 
-            // Show WLED protocol selector between host and port for WLED connections
+            // Для WLED выбор протокола показываем между адресом и портом
             if (isWled) {
                 key(state.wledProtocol) {
                     ListPreference(
@@ -92,7 +92,7 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                                 "wled_protocol",
                                 newProtocol
                             )
-                            // Auto-set port when WLED protocol changes
+                            // При смене протокола WLED порт подставляем сами
                             val defaultPort = if (newProtocol == "ddp") "4048" else "19446"
                             prefs.putString(R.string.pref_key_port, defaultPort)
                             state.currentPort = defaultPort
@@ -101,7 +101,7 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                 }
             }
 
-            // Use key to force recomposition when connection type or WLED protocol changes
+            // key заставляет пересобрать поле при смене типа подключения или протокола WLED
             key("${state.connectionType}_${state.wledProtocol}") {
                 EditTextPreference(
                     prefs = prefs,

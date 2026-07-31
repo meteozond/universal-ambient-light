@@ -1,27 +1,27 @@
 package com.vasmarfas.UniversalAmbientLight.common.util
 
 /**
- * Decides when a camera capture session can stop streaming: the panel went blank
- * (TV off / standby) or the picture froze (paused video, static menu).
+ * Решает, когда сессия захвата с камеры может перестать слать кадры: панель погасла
+ * (телевизор выключен или в ждущем режиме) либо картинка застыла (пауза, статичное меню).
  *
- * Unlike the screen-capture sources, camera mode gets no ACTION_SCREEN_OFF — the
- * picture itself is the only available standby signal. The caller feeds two cheap
- * per-frame numbers, mean luminance of the TV area and how far it deviates from a
- * reference sample, and reacts to the reported state changes. Time comes from the
- * caller, so this class has no Android dependency.
+ * В отличие от экранных источников, режим камеры не получает ACTION_SCREEN_OFF — сама
+ * картинка остаётся единственным признаком простоя. Вызывающий код передаёт два дешёвых
+ * числа на кадр — среднюю яркость области телевизора и её отклонение от эталонного
+ * замера — и реагирует на смену состояния. Время тоже приходит снаружи, поэтому у класса
+ * нет зависимости от Android.
  *
- * While asleep the caller must keep the reference sample frozen at the moment of
- * falling asleep. Comparing against the previous frame instead would sleep through a
- * slow fade, where every individual step sits below any usable threshold.
+ * Во сне вызывающий код обязан держать эталонный замер замороженным на моменте засыпания.
+ * Сравнение с предыдущим кадром вместо этого проспало бы медленное затухание, где каждый
+ * отдельный шаг лежит ниже любого разумного порога.
  */
 class CameraIdleDetector(val config: Config) {
 
     /**
-     * @param timeoutMs how long the picture must stay blank/frozen before sleeping
-     * @param darkLevel mean luminance (0-255) at or below which the panel counts as blank
-     * @param motionLevel mean luminance deviation (0-255) at or below which the picture
-     *   counts as unchanged
-     * @param staticSleepEnabled whether a frozen — but not blank — picture may sleep too
+     * @param timeoutMs сколько картинка должна оставаться чёрной или застывшей до засыпания
+     * @param darkLevel средняя яркость (0-255), при которой и ниже панель считается погасшей
+     * @param motionLevel среднее отклонение яркости (0-255), при котором и ниже картинка
+     *   считается неизменной
+     * @param staticSleepEnabled разрешено ли засыпать на застывшей, но не чёрной картинке
      */
     data class Config(
         val timeoutMs: Long,
@@ -31,13 +31,13 @@ class CameraIdleDetector(val config: Config) {
     )
 
     enum class State {
-        /** Full capture pipeline, frames streaming to the LEDs. */
+        /** Полный конвейер захвата, кадры уходят на ленту. */
         AWAKE,
 
-        /** Blank panel: LEDs off, capture idling at a low sample rate. */
+        /** Панель погасла: лента выключена, захват идёт на пониженной частоте. */
         SLEEP_DARK,
 
-        /** Frozen picture: LEDs hold their last colors, capture idling. */
+        /** Картинка застыла: лента держит последние цвета, захват простаивает. */
         SLEEP_STATIC,
     }
 
@@ -48,23 +48,23 @@ class CameraIdleDetector(val config: Config) {
     private var stillSinceMs = 0L
     private var wakeTicks = 0
 
-    // Waking needs a clearly brighter / more different frame than the one that put us to
-    // sleep, otherwise sensor noise sitting right on the threshold flips the state on
-    // every sample.
+    // Для пробуждения нужен заметно более яркий или более отличающийся кадр, чем тот, что
+    // усыпил, иначе шум сенсора, сидящий ровно на пороге, будет дёргать состояние на
+    // каждом замере.
     private val wakeLumaLevel =
         config.darkLevel + (config.darkLevel / 2).coerceAtLeast(MIN_LUMA_MARGIN)
     private val wakeMotionLevel =
         (config.motionLevel * 2).coerceAtLeast(config.motionLevel + MIN_MOTION_MARGIN)
 
-    /** True while the caller may skip the expensive part of its capture pipeline. */
+    /** True, пока вызывающий код может пропускать дорогую часть своего конвейера. */
     val isAsleep: Boolean get() = state != State.AWAKE
 
     /**
-     * Feeds one sample and returns the state that applies from now on.
+     * Принимает один замер и возвращает состояние, действующее с этого момента.
      *
-     * @param luma mean luminance (0-255) of the captured TV area
-     * @param deviation mean absolute luminance difference (0-255) against the reference
-     *   sample — the previous frame while awake, the frame we fell asleep on while asleep
+     * @param luma средняя яркость (0-255) снятой области телевизора
+     * @param deviation среднее по модулю отличие яркости (0-255) от эталонного замера:
+     *   предыдущего кадра в бодрствовании и кадра засыпания во сне
      */
     fun update(luma: Int, deviation: Int, nowMs: Long): State {
         state = if (state == State.AWAKE) {
@@ -75,7 +75,7 @@ class CameraIdleDetector(val config: Config) {
         return state
     }
 
-    /** Drops all timers and returns to [State.AWAKE] — for a restarted capture session. */
+    /** Сбрасывает таймеры и возвращает [State.AWAKE] — для перезапущенной сессии захвата. */
     fun reset() {
         state = State.AWAKE
         darkSinceMs = 0L
@@ -90,8 +90,8 @@ class CameraIdleDetector(val config: Config) {
         val still = deviation <= config.motionLevel
         stillSinceMs = if (!still) 0L else if (stillSinceMs == 0L) nowMs else stillSinceMs
 
-        // A blank screen is also a frozen one; turning the LEDs off beats freezing them on
-        // the last colors, so the blank check goes first.
+        // Чёрный экран — тоже застывший; выключить ленту лучше, чем заморозить её на
+        // последних цветах, поэтому проверка на черноту идёт первой.
         if (blank && nowMs - darkSinceMs >= config.timeoutMs) return fallAsleep(State.SLEEP_DARK)
         if (config.staticSleepEnabled && still && nowMs - stillSinceMs >= config.timeoutMs) {
             return fallAsleep(State.SLEEP_STATIC)
@@ -101,8 +101,8 @@ class CameraIdleDetector(val config: Config) {
 
     private fun updateAsleep(luma: Int, deviation: Int): State {
         val woken = when (state) {
-            // The panel lighting up is the primary signal, but a bright-enough change in an
-            // otherwise dark frame (a menu on a black background) counts too.
+            // Загоревшаяся панель — основной признак, но достаточно яркое изменение в
+            // остальном тёмном кадре (меню на чёрном фоне) тоже считается.
             State.SLEEP_DARK -> luma >= wakeLumaLevel || deviation >= wakeMotionLevel
             else -> deviation >= wakeMotionLevel
         }
@@ -110,7 +110,7 @@ class CameraIdleDetector(val config: Config) {
             wakeTicks = 0
             return state
         }
-        // Two samples in a row, so a single noisy frame can't wake the whole strip.
+        // Два замера подряд, чтобы один шумный кадр не будил всю ленту.
         if (++wakeTicks < WAKE_CONFIRM_TICKS) return state
 
         wakeTicks = 0
@@ -127,7 +127,7 @@ class CameraIdleDetector(val config: Config) {
     }
 
     companion object {
-        /** Consecutive wake samples required before resuming full capture. */
+        /** Сколько подряд «пробуждающих» замеров нужно, чтобы вернуться к полному захвату. */
         const val WAKE_CONFIRM_TICKS = 2
 
         private const val MIN_LUMA_MARGIN = 6

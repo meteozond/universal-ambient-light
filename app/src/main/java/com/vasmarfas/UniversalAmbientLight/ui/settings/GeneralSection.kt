@@ -17,7 +17,6 @@ import com.vasmarfas.UniversalAmbientLight.R
 @Composable
 internal fun ColumnScope.GeneralSection(prefs: Preferences, state: SettingsScreenState) {
     val context = LocalContext.current
-    // General Group
     SettingsGroup(title = stringResource(R.string.pref_group_general)) {
         CheckBoxPreference(
             prefs = prefs,
@@ -57,7 +56,7 @@ internal fun ColumnScope.GeneralSection(prefs: Preferences, state: SettingsScree
         )
     }
 
-    // Debug Group
+    // Отладка
     SettingsGroup(title = "Debug") {
         ClickablePreference(
             title = "Device Info",

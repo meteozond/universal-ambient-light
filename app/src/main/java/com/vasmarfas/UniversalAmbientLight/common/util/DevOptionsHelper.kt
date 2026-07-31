@@ -10,8 +10,8 @@ import android.provider.Settings
 import android.util.Log
 
 /**
- * Helpers for navigating the user to Android developer settings so they can
- * enable USB / wireless debugging without leaving the app.
+ * Помогает довести пользователя до настроек разработчика, чтобы он включил отладку по USB
+ * или по Wi-Fi, не выходя из приложения надолго.
  */
 object DevOptionsHelper {
     private const val TAG = "DevOptionsHelper"
@@ -36,7 +36,7 @@ object DevOptionsHelper {
         }
     }
 
-    /** Opens the Developer Options screen. Returns false if not reachable. */
+    /** Открывает экран «Для разработчиков». Возвращает false, если открыть не удалось. */
     fun openDeveloperOptions(context: Context): Boolean {
         return tryOpen(
             context,
@@ -61,25 +61,24 @@ object DevOptionsHelper {
     }
 
     /**
-     * Tries to open the Wireless Debugging screen (Android 11+).
-     * If a direct route is unavailable, falls back to Developer Options scrolled
-     * to the wireless-debugging toggle (using the SettingsActivity fragment-args
-     * extras). Last resort — plain Developer Options.
+     * Пробует открыть экран «Отладка по Wi-Fi» (Android 11+). Если прямого пути нет,
+     * открывает «Для разработчиков» с прокруткой к нужному переключателю (через аргументы
+     * фрагмента у SettingsActivity). В самом крайнем случае — просто «Для разработчиков».
      */
     fun openWirelessDebugging(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val direct = tryOpen(
                 context,
-                // Public action constant on API 31+, also recognised on AOSP Android 11.
+                // Публичная константа action с API 31, её же понимает AOSP Android 11.
                 Intent("android.settings.ADB_WIRELESS_SETTINGS"),
-                // Explicit Pixel/AOSP activity.
+                // Явная активити Pixel и AOSP.
                 Intent().setComponent(
                     ComponentName(
                         "com.android.settings",
                         "com.android.settings.Settings\$AdbWirelessSettingsActivity"
                     )
                 ),
-                // Some OEM variants.
+                // Варианты у отдельных производителей.
                 Intent().setComponent(
                     ComponentName(
                         "com.android.settings",
@@ -97,9 +96,9 @@ object DevOptionsHelper {
             if (direct) return true
         }
 
-        // Fragment-args fallback: opens Developer Options with the wireless-debugging
-        // toggle highlighted/scrolled into view. Works on most AOSP-derived Settings apps.
-        // The key matches the preference id in development_settings.xml across versions.
+        // Запасной путь через аргументы фрагмента: открывает «Для разработчиков» с подсветкой и
+        // прокруткой к переключателю отладки по Wi-Fi. Работает на большинстве настроек из AOSP.
+        // Ключ совпадает с id настройки в development_settings.xml во всех версиях.
         val highlightIntents = listOf(
             "toggle_adb_wireless",
             "adb_wireless",
@@ -118,8 +117,8 @@ object DevOptionsHelper {
     }
 
     /**
-     * Opens the "About phone" / "Device info" screen so the user can tap "Build number"
-     * seven times to unlock Developer Options.
+     * Открывает экран «О телефоне» или «Об устройстве», чтобы пользователь семь раз нажал
+     * «Номер сборки» и разблокировал режим разработчика.
      */
     fun openAboutDeviceForBuildNumber(context: Context): Boolean {
         return tryOpen(

@@ -67,8 +67,8 @@ fun AdbPairingDialog(
     val onLabel = stringResource(R.string.adb_status_on)
     val offLabel = stringResource(R.string.adb_status_off)
 
-    // When the user returns after enabling Accessibility (from the auto-pair flow), re-open
-    // the consent dialog so pairing continues without re-tapping the button.
+    // Когда пользователь возвращается, включив службу доступности (сценарий автосопряжения),
+    // снова открываем диалог согласия, чтобы сопряжение продолжилось без повторного нажатия.
     val lifecycle = (context as? androidx.lifecycle.LifecycleOwner)?.lifecycle
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -83,7 +83,7 @@ fun AdbPairingDialog(
         onDispose { lifecycle?.removeObserver(observer) }
     }
 
-    // Legacy connect (Android 10 and older, or after `adb tcpip 5555`): plain RSA over TCP.
+    // Подключение по-старому (Android 10 и ниже либо после `adb tcpip 5555`): обычный RSA поверх TCP.
     fun runLegacyConnect() {
         testing = true
         status = null
@@ -109,14 +109,14 @@ fun AdbPairingDialog(
         }
     }
 
-    // Accessibility-assisted auto pairing. Only runs after explicit consent (see consent dialog).
+    // Автосопряжение через службу доступности. Запускается только после явного согласия.
     fun runAutoPair() {
         testing = true
         status = null
         scope.launch(Dispatchers.IO) {
             if (!AccessibilityCaptureService.isAvailable()) {
-                // Ask the service to bounce back to us once the user enables it,
-                // and to re-open the consent dialog so pairing continues automatically.
+                // Просим службу вернуть нас обратно, как только пользователь её включит,
+                // и заново открыть диалог согласия, чтобы сопряжение пошло дальше само.
                 AccessibilityCaptureService.requestReturnToAppOnConnect()
                 AccessibilityCaptureService.markAutoPairPending()
                 withContext(Dispatchers.Main) {
@@ -270,7 +270,7 @@ fun AdbPairingDialog(
                         }
                     ) { Text(stringResource(R.string.adb_btn_open_wireless_debug)) }
 
-                    // Legacy connection FIRST — Android 10 and older, or after `adb tcpip 5555`.
+                    // Сначала подключение по-старому — Android 10 и ниже либо после `adb tcpip 5555`.
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.adb_legacy_title),
@@ -283,8 +283,8 @@ fun AdbPairingDialog(
                         onClick = { runLegacyConnect() }
                     ) { Text(stringResource(R.string.adb_legacy_btn)) }
 
-                    // Android 11+ pairing: shown below the legacy option. One-time pairing; the
-                    // automatic button reads the code via Accessibility (after explicit consent).
+                    // Сопряжение для Android 11+ показываем ниже. Оно разовое, а кнопка
+                    // автоматического режима читает код через службу доступности (после согласия).
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
@@ -293,9 +293,9 @@ fun AdbPairingDialog(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // One-tap path: shows a consent dialog first, then the app reads the code via
-                        // Accessibility, finds the port via mDNS and pairs without leaving the screen.
-                        // Accessibility-dependent — hidden in the Play Store flavor (no such service).
+                        // Путь «в одно касание»: сначала диалог согласия, затем приложение само
+                        // читает код через доступность, находит порт по mDNS и сопрягается, не уводя
+                        // пользователя с экрана. Требует службу доступности — во флейворе Google Play скрыт.
                         if (BuildConfig.HAS_ACCESSIBILITY) {
                             OutlinedButton(
                                 enabled = !testing,
@@ -305,7 +305,7 @@ fun AdbPairingDialog(
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
-                        // Manual entry hidden behind a spoiler so it doesn't clutter D-pad navigation.
+                        // Ручной ввод спрятан под спойлер, чтобы не мешать навигации с пульта.
                         TextButton(
                             onClick = { manualExpanded = !manualExpanded },
                             modifier = Modifier.fillMaxWidth()
@@ -356,7 +356,7 @@ fun AdbPairingDialog(
                                     scope.launch(Dispatchers.IO) {
                                         try {
                                             val mgr = AppAdbConnectionManager.getInstance(context)
-                                            // adbd's pairing server binds to the LAN IP; fall back to loopback.
+                                            // Сервер сопряжения adbd слушает на адресе локальной сети; запасной вариант — loopback.
                                             val host =
                                                 io.github.muntashirakon.adb.android.AndroidUtils.getHostIpAddress(
                                                     context
@@ -389,7 +389,7 @@ fun AdbPairingDialog(
                     }
                 }
 
-                // Always-visible status + progress, pinned below the scroll area.
+                // Состояние и прогресс всегда на виду, под областью прокрутки.
                 val currentStatus = status
                 if (currentStatus != null) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -420,7 +420,7 @@ fun AdbPairingDialog(
                                 prefs.getString(R.string.pref_key_adb_port, "5555")?.toIntOrNull()
                                     ?: 5555
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                                // Android 11+: TLS connect (auto-discovers the connect port; falls back to the entered port).
+                                // Android 11+: подключение по TLS (порт находит сам, иначе берёт введённый).
                                 val mgr = AppAdbConnectionManager.getInstance(context)
                                 if (!mgr.isConnected) {
                                     val auto = try {
@@ -443,7 +443,7 @@ fun AdbPairingDialog(
                                         )
                                 }
                             } else {
-                                // Android <= 10: legacy RSA over TCP (port 5555).
+                                // Android 10 и ниже: старый RSA поверх TCP (порт 5555).
                                 val keyPair = AdbKeyHelper.getKeyPair(context)
                                 val dadb = Dadb.create("127.0.0.1", port, keyPair)
                                 dadb.shell("echo ok")

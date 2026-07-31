@@ -19,6 +19,7 @@ import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
+import androidx.annotation.StringRes
 import androidx.core.app.ServiceCompat
 import com.vasmarfas.UniversalAmbientLight.R
 import com.vasmarfas.UniversalAmbientLight.common.network.ConnectionConfig
@@ -56,8 +57,8 @@ class ScreenGrabberService : Service() {
     private var mProjectionResultCode: Int? = null
     private var mProjectionDataExtras: android.os.Bundle? = null
 
-    // Holds the AppOptions handed to the active encoder, so color-pref edits made
-    // mid-capture can push new values into it without restarting the session.
+    // Хранит AppOptions, отданные активному энкодеру: правки цветовых настроек по ходу
+    // захвата подставляются сюда, не перезапуская сессию.
     @Volatile
     private var mActiveOptions: AppOptions? = null
     private var mPrefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? =
@@ -71,7 +72,7 @@ class ScreenGrabberService : Service() {
             val host = prefs.getString(R.string.pref_key_host, null)
             AnalyticsHelper.logConnectionSuccess(baseContext, mConnectionType, host)
             notifyActivity()
-            // Service may have been (re)started while the screen is already off (e.g. USB re-attach in standby)
+            // Сервис мог быть запущен при уже погашенном экране (например, переподключение USB в простое)
             maybeStandbyPauseOnConnect()
         }
 
@@ -88,24 +89,29 @@ class ScreenGrabberService : Service() {
             Log.e(TAG, "Connection error: " + (error ?: "unknown"))
             AnalyticsHelper.logConnectionError(baseContext, mConnectionType, error)
             if (!mHasConnected) {
-                // Use appropriate error message based on connection type
-                if ("adalight".equals(mConnectionType, ignoreCase = true)) {
-                    mStartError = resources.getString(R.string.error_adalight_unreachable)
-                } else {
-                    mStartError = resources.getString(R.string.error_server_unreachable)
-                }
+                mStartError = connectionErrorText(
+                    R.string.error_adalight_unreachable,
+                    R.string.error_server_unreachable
+                )
                 haltStartup()
             } else if (mReconnectEnabled) {
                 Log.i(TAG, "Attempting automatic reconnect...")
             } else {
-                // Use appropriate error message based on connection type
-                if ("adalight".equals(mConnectionType, ignoreCase = true)) {
-                    mStartError = resources.getString(R.string.error_adalight_connection_lost)
-                } else {
-                    mStartError = resources.getString(R.string.error_connection_lost)
-                }
+                mStartError = connectionErrorText(
+                    R.string.error_adalight_connection_lost,
+                    R.string.error_connection_lost
+                )
                 stopSelf()
             }
+        }
+
+        /** У Adalight своя формулировка ошибки: там нет ни адреса, ни сервера. */
+        private fun connectionErrorText(
+            @StringRes adalight: Int,
+            @StringRes network: Int,
+        ): String {
+            val isAdalight = "adalight".equals(mConnectionType, ignoreCase = true)
+            return resources.getString(if (isAdalight) adalight else network)
         }
 
         override fun onReceiveStatus(isCapturing: Boolean) {
@@ -122,11 +128,11 @@ class ScreenGrabberService : Service() {
                     mStandby?.releaseWakeLock()
                     mStandby?.releaseWifiLock()
 
-                    // Resume LED output if it was paused for standby
+                    // Возобновляем вывод, если он был приглушён на время простоя
                     mStandby?.cancelPause()
                     mHyperionThread?.resumeSending()
 
-                    // Reset WLED client data send block after EPERM error to resume sending on screen wake
+                    // Снимаем блокировку отправки WLED после ошибки EPERM, чтобы продолжить при пробуждении
                     mHyperionThread?.resetBlockedIfWLED()
 
                     if (!isCapturing) {
@@ -135,8 +141,8 @@ class ScreenGrabberService : Service() {
                             if (DEBUG) Log.v(TAG, "Resuming ${backend.javaClass.simpleName}")
                             backend.resumeRecording()
                         } else if (mCaptureSource != "camera") {
-                            // If MediaProjection was stopped by system (sleep), resumeRecording() won't help.
-                            // Recreate encoder from saved projection data.
+                            // Если MediaProjection остановила система (уход в сон), resumeRecording() не спасёт —
+                            // пересоздаём энкодер из сохранённых данных проекции.
                             if (DEBUG) Log.v(
                                 TAG,
                                 "No encoder active, trying restartEncoderFromSavedProjection"
@@ -149,13 +155,13 @@ class ScreenGrabberService : Service() {
 
                 Intent.ACTION_SCREEN_OFF -> {
                     if (DEBUG) Log.v(TAG, "ACTION_SCREEN_OFF intent received")
-                    // Camera captures an external TV — device screen sleep is irrelevant, keep running as before.
+                    // Камера снимает внешний телевизор, сон экрана устройства ей безразличен — работаем как работали.
                     val isCamera = mCaptureSource == "camera"
                     val standbyKeepalive =
                         Preferences(context).getBoolean(R.string.pref_key_standby_keepalive)
                     if (standbyKeepalive || isCamera) {
-                        // On some TVs CPU goes into deep sleep and keepalive threads stop sending packets,
-                        // causing WLED to revert to default effect after ~10s. PARTIAL_WAKE_LOCK keeps CPU alive for keepalive.
+                        // На части телевизоров процессор уходит в глубокий сон, keepalive-потоки перестают слать
+                        // пакеты, и через ~10 секунд WLED возвращается к своему эффекту. PARTIAL_WAKE_LOCK этому мешает.
                         mStandby?.acquireWakeLock()
                         mStandby?.acquireWifiLock()
                     }
@@ -163,7 +169,7 @@ class ScreenGrabberService : Service() {
                     // устройства — гасим ленту только для экранных способов захвата.
                     if (mActiveBackend !is CameraEncoder) mActiveBackend?.clearLights()
                     if (!standbyKeepalive && !isCamera) {
-                        // Standby keepalive disabled: let the black frames flush, then stay silent until SCREEN_ON
+                        // Keepalive в простое выключен: даём чёрным кадрам уйти и молчим до SCREEN_ON
                         mStandby?.schedulePause()
                     }
                 }
@@ -191,7 +197,7 @@ class ScreenGrabberService : Service() {
             mHyperionThread?.pauseSending()
         }
 
-        // Try shell bypass on startup for TCL devices
+        // На запуске пробуем shell-обход для устройств TCL
         if (TclBypass.isTclDevice() || TclBypass.isRestrictedManufacturer()) {
             Log.i(TAG, "Detected restricted manufacturer, attempting shell bypass")
             TclBypass.tryShellBypass(this)
@@ -294,8 +300,8 @@ class ScreenGrabberService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (DEBUG) Log.v(TAG, "Start command received")
 
-        // Must call startForeground within ~5s of every startForegroundService call
-        // regardless of action, otherwise Android throws ForegroundServiceDidNotStartInTime.
+        // startForeground обязан быть вызван в пределах ~5 секунд после каждого
+        // startForegroundService, иначе Android бросит ForegroundServiceDidNotStartInTime.
         ensureForegroundStarted(initialForegroundTypeFor(intent?.action))
 
         super.onStartCommand(intent, flags, startId)
@@ -321,7 +327,6 @@ class ScreenGrabberService : Service() {
                     else
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
 
-                    // Start foreground with appropriate type
                     val foregroundStarted = tryStartForegroundCompat(foregroundType)
 
                     val isPrepared = prepared()
@@ -374,7 +379,7 @@ class ScreenGrabberService : Service() {
 
                 ACTION_STOP -> stopAllCapture()
                 ACTION_CLEAR -> {
-                    // Send one black frame but keep connection
+                    // Один чёрный кадр, но соединение оставляем
                     val backend = mActiveBackend
                     if (backend != null) {
                         if (DEBUG) Log.v(
@@ -440,7 +445,7 @@ class ScreenGrabberService : Service() {
         else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
     }
 
-    /** Idempotent startForeground — safe to call multiple times. */
+    /** Идемпотентный startForeground — вызывать можно сколько угодно раз. */
     private fun ensureForegroundStarted(type: Int) {
         if (mForegroundStarted) return
         try {
@@ -542,7 +547,7 @@ class ScreenGrabberService : Service() {
             }
         }
 
-        // Retry
+        // Повторная попытка
         if (mForegroundFailed) {
             try {
                 Thread.sleep(100)
@@ -605,7 +610,7 @@ class ScreenGrabberService : Service() {
     }
 
     private fun haltStartup() {
-        // Try to start foreground to show error, but don't fail if blocked
+        // Пробуем выйти в foreground, чтобы показать ошибку, но не падаем, если это запрещено
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ServiceCompat.startForeground(
@@ -666,7 +671,7 @@ class ScreenGrabberService : Service() {
         }
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
 
-        // Use the passed projection intent directly if available (safer for restricted devices)
+        // По возможности берём переданный интент проекции напрямую — так надёжнее на устройствах с ограничениями
         val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
         } else {
@@ -674,11 +679,11 @@ class ScreenGrabberService : Service() {
             intent.getParcelableExtra(EXTRA_RESULT_DATA)
         }
 
-        // Save projection data to restore after sleep/wake on TV
+        // Сохраняем данные проекции, чтобы восстановиться после сна телевизора
         if (resultData != null) {
             saveProjectionData(resultCode, resultData.extras)
         } else {
-            // Fallback for older version/unexpected call
+            // Запасной путь для старых версий и неожиданных вызовов
             saveProjectionData(resultCode, intent.extras)
         }
 
@@ -877,7 +882,7 @@ class ScreenGrabberService : Service() {
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private fun restartEncoderFromSavedProjection() {
-        // In screencap mode there is no projection to restore — just resume the capture loop
+        // В режиме screencap восстанавливать нечего — просто возобновляем цикл захвата
         val screencap = mActiveBackend as? ScreencapEncoder
         if (screencap != null) {
             screencap.resumeRecording()
@@ -888,7 +893,7 @@ class ScreenGrabberService : Service() {
         val projectionManager = mMediaProjectionManager ?: return
         val thread = mHyperionThread ?: return
 
-        // Stop old encoder without disconnecting (important for WLED keepalive)
+        // Останавливаем старый энкодер без разрыва соединения (важно для keepalive WLED)
         try {
             (mActiveBackend as? ScreenEncoder)?.stopRecordingNoDisconnect()
         } catch (e: Exception) {
@@ -925,8 +930,8 @@ class ScreenGrabberService : Service() {
             mActiveBackend = encoder
             encoder.sendStatus()
         } catch (e: SecurityException) {
-            // MediaProjection token may have expired or been revoked by system.
-            // Don't crash from broadcast receiver, just log error and stop.
+            // Токен MediaProjection мог истечь или быть отозван системой. Падать из приёмника
+            // широковещаний нельзя — логируем и останавливаемся.
             Log.e(TAG, "Failed to restart encoder from saved projection: ${e.message}", e)
             mStartError = resources.getString(R.string.error_media_projection_denied)
             mProjectionResultCode = null
@@ -1043,8 +1048,8 @@ class ScreenGrabberService : Service() {
             keyBr, keyBg, keyBb, keyGr, keyGg, keyGb
         )
         val borderKeys = setOf(keyBorderOn, keyBorderTh, keyBorderIv)
-        // Auto-sleep thresholds are only tunable against a live camera feed, so they follow
-        // the same edit-while-capturing path as the color settings.
+        // Пороги автосна настраиваются только вживую под камерой, поэтому идут тем же путём
+        // «правка во время захвата», что и цветовые настройки.
         val cameraIdleKeys = setOf(
             getString(R.string.pref_key_camera_idle_enabled),
             getString(R.string.pref_key_camera_idle_timeout),
@@ -1077,7 +1082,6 @@ class ScreenGrabberService : Service() {
     }
 
     interface HyperionThreadBroadcaster {
-        //        void onResponse(String response);
         fun onConnected()
         fun onConnectionError(errorID: Int, error: String?)
         fun onReceiveStatus(isCapturing: Boolean)
@@ -1105,7 +1109,7 @@ class ScreenGrabberService : Service() {
 
         private var sMediaProjection: MediaProjection? = null
 
-        /** A settings problem that stops capture before it starts. */
+        /** Проблема в настройках, из-за которой захват не начнётся. */
         data class SettingsError(
             val code: String,
             val message: String,
@@ -1113,9 +1117,9 @@ class ScreenGrabberService : Service() {
         )
 
         /**
-         * Checks the prefs the service needs before it can send anything, so callers can warn
-         * the user up front instead of letting the service fail after all the permission
-         * dialogs. Returns null when the settings are usable.
+         * Проверяет настройки, без которых сервису нечего отправлять, чтобы предупредить
+         * пользователя сразу, а не после всех диалогов с разрешениями. Возвращает null,
+         * когда настройки пригодны.
          */
         @JvmStatic
         fun validateSettings(context: Context): SettingsError? {
@@ -1123,7 +1127,7 @@ class ScreenGrabberService : Service() {
             val connectionType =
                 prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
 
-            // For Adalight, host and port are not required
+            // Для Adalight адрес и порт не нужны
             if (!"adalight".equals(connectionType, ignoreCase = true)) {
                 val host = prefs.getString(R.string.pref_key_host, null)?.trim()
                 if (host.isNullOrEmpty() || host == "0.0.0.0") {
@@ -1139,7 +1143,7 @@ class ScreenGrabberService : Service() {
                         context.getString(R.string.error_empty_port)
                     )
                 }
-                // Validate port range (1-65535)
+                // Порт должен попадать в диапазон 1-65535
                 if (port < 1 || port > 65535) {
                     return SettingsError(
                         "invalid_port",
@@ -1162,7 +1166,7 @@ class ScreenGrabberService : Service() {
             return null
         }
 
-        /** True while the service instance is alive (onCreate→onDestroy). */
+        /** True, пока экземпляр сервиса жив (onCreate→onDestroy). */
         @Volatile
         @JvmStatic
         var sInstanceRunning: Boolean = false

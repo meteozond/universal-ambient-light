@@ -77,7 +77,7 @@ object AnalyticsHelper {
             0
         }
 
-    /** Mirrors current config into Crashlytics custom keys so crash/ANR reports carry context. */
+    /** Дублирует текущие настройки в поля Crashlytics, чтобы отчёты о падениях и ANR несли контекст. */
     fun syncCrashlyticsContext(context: Context) {
         try {
             val crashlytics = FirebaseCrashlytics.getInstance()
@@ -150,7 +150,7 @@ object AnalyticsHelper {
         getAnalytics(context).logEvent("screen_capture_stopped", bundle)
     }
 
-    /** Summary of a finished capture session: duration, method/source, protocol, connection, end reason. */
+    /** Итог завершённой сессии захвата: длительность, метод и источник, протокол, соединение, причина остановки. */
     fun logCaptureSessionSummary(
         context: Context,
         durationSeconds: Long,

@@ -28,11 +28,11 @@ import java.util.Date
 import java.util.Random
 
 /**
- * Generates and persists the RSA key pair + self-signed X.509 certificate used for
- * Android 11+ wireless ADB (TLS). Uses the repackaged `android.sun.security.x509`
- * classes (sun-security-android) — NOT BouncyCastle, whose `org.bouncycastle.*`
- * classes clash with the partial copy on the Android boot classpath and crash with
- * NoClassDefFoundError (EdECObjectIdentifiers). Files live in app-private storage.
+ * Создаёт и хранит пару ключей RSA и самоподписанный сертификат X.509 для беспроводного
+ * ADB на Android 11+ (TLS). Использует перепакованные классы `android.sun.security.x509`
+ * (sun-security-android), а НЕ BouncyCastle: его классы `org.bouncycastle.*` конфликтуют
+ * с частичной копией в boot classpath Android и падают с NoClassDefFoundError
+ * (EdECObjectIdentifiers). Файлы лежат в приватном хранилище приложения.
  */
 object AdbCertHelper {
     private const val KEY_FILE = "adb_tls_private.key"

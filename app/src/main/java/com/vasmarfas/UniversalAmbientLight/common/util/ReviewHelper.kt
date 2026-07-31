@@ -9,7 +9,7 @@ import com.google.android.play.core.review.ReviewManager
 import com.google.android.play.core.review.ReviewManagerFactory
 
 /**
- * Utility class for managing Google Play review dialog display
+ * Показ диалога оценки приложения в Google Play.
  */
 object ReviewHelper {
     private const val TAG = "ReviewHelper"
@@ -23,7 +23,7 @@ object ReviewHelper {
     private const val MIN_LIGHTING_STARTS = 5
 
     /**
-     * Increments lighting start counter and checks if review dialog should be shown
+     * Увеличивает счётчик запусков подсветки и проверяет, пора ли показать диалог оценки.
      */
     fun onLightingStarted(activity: Activity) {
         val prefs = Preferences.defaultSharedPreferences(activity)
@@ -38,7 +38,7 @@ object ReviewHelper {
     }
 
     /**
-     * Checks if review dialog should be shown
+     * Проверяет, стоит ли показывать диалог оценки.
      */
     private fun shouldShowReviewDialog(context: Context): Boolean {
         val prefs = Preferences.defaultSharedPreferences(context)
@@ -48,8 +48,8 @@ object ReviewHelper {
             return false
         }
 
-        // Check last request time (don't use dismissed flag, as Google Play may not show dialog
-        // due to quotas, and we don't know if it was actually shown)
+        // Смотрим время последнего запроса, а не флаг отказа: Google Play из-за своих квот
+        // мог диалог и не показать, а мы об этом не узнаем.
         val lastRequestTime = prefs.getLong(PREF_KEY_LAST_REVIEW_REQUEST, 0L)
         val now = System.currentTimeMillis()
         val daysSinceLastRequest = if (lastRequestTime > 0) {
@@ -63,12 +63,12 @@ object ReviewHelper {
             return false
         }
 
-        // Don't use dismissed flag for blocking, as dialog might not have appeared due to Google Play quotas
+        // Флаг отказа для блокировки не используем: диалог мог не появиться из-за квот Google Play
         return lastRequestTime == 0L || daysSinceLastRequest >= MIN_DAYS_BETWEEN_REQUESTS
     }
 
     /**
-     * Checks if app is installed from Google Play
+     * Проверяет, установлено ли приложение из Google Play.
      */
     private fun isInstalledFromPlayStore(context: Context): Boolean {
         return try {
@@ -80,10 +80,10 @@ object ReviewHelper {
     }
 
     /**
-     * Requests review dialog display
+     * Запрашивает показ диалога оценки.
      * 
-     * Important: Google Play has quotas and may not show dialog even if we call launchReviewFlow.
-     * Therefore we save request time only after successful flow completion.
+     * Важно: у Google Play есть квоты, и диалог может не появиться даже после launchReviewFlow,
+     * поэтому время запроса сохраняем только после успешного завершения потока.
      */
     private fun requestReview(activity: Activity) {
         val reviewManager: ReviewManager = ReviewManagerFactory.create(activity)
@@ -96,10 +96,10 @@ object ReviewHelper {
 
                 val flow = reviewManager.launchReviewFlow(activity, reviewInfo)
                 flow.addOnCompleteListener {
-                    // Save last request time only after flow completion. Important: Google Play may not show
-                    // dialog due to quotas, but we still shouldn't request too frequently.
-                    // Don't set dismissed=true, as we don't know if dialog was actually shown.
-                    // Instead, rely only on last request time.
+                    // Время запроса сохраняем только после завершения потока: Google Play из-за квот
+                    // мог диалог не показать, но спрашивать слишком часто всё равно не стоит.
+                    // dismissed=true не ставим: мы не знаем, показали диалог на самом деле или нет,
+                    // и опираемся только на время последнего запроса.
                     prefs.edit {
                         putLong(PREF_KEY_LAST_REVIEW_REQUEST, System.currentTimeMillis())
                     }
@@ -112,7 +112,7 @@ object ReviewHelper {
     }
 
     /**
-     * Resets dismissal flag (for testing)
+     * Сбрасывает флаг отказа (для тестирования).
      */
     fun resetReviewState(context: Context) {
         val prefs = Preferences.defaultSharedPreferences(context)
@@ -125,7 +125,7 @@ object ReviewHelper {
     }
 
     /**
-     * Resets all review data including start counter (for testing)
+     * Сбрасывает все данные об оценке, включая счётчик запусков (для тестирования).
      */
     fun resetAllReviewData(context: Context) {
         val prefs = Preferences.defaultSharedPreferences(context)
@@ -139,8 +139,7 @@ object ReviewHelper {
     }
 
     /**
-     * Force shows review dialog (for testing)
-     * WARNING: Use only for testing!
+     * Принудительно показывает диалог оценки — только для тестирования.
      */
     fun forceShowReview(activity: Activity) {
         Log.d(TAG, "Force showing review dialog (for testing)")
@@ -148,7 +147,7 @@ object ReviewHelper {
     }
 
     /**
-     * Gets current state for debugging
+     * Возвращает текущее состояние для диагностики.
      */
     fun getReviewState(context: Context): String {
         val prefs = Preferences.defaultSharedPreferences(context)

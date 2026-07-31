@@ -90,7 +90,7 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
                 mTargetValues = targets
                 mPreviousValues = previous
 
-                // Copy initial state
+                // Копируем начальное состояние
                 for (i in targetColors.indices) {
                     targets[i].set(targetColors[i])
                     previous[i].set(targetColors[i])
@@ -101,7 +101,7 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
                     start()
                 }
             } else {
-                // GC-free update: copy values
+                // Обновление без мусора: копируем значения на месте
                 for (i in targetColors.indices) {
                     current[i].set(targetColors[i])
                 }
@@ -133,12 +133,12 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
 
         if (deltaTime <= 0) {
             // Время истекло, использовать целевые значения
-            // Update mPreviousValues in-place
+            // Обновляем mPreviousValues на месте
             for (i in targets.indices) previous[i].set(targets[i])
 
             if (mOutputDelayMs == 0L) return previous
 
-            // Clone only if queueing
+            // Клонируем только если кадр уходит в очередь
             return Array(previous.size) { i -> previous[i].clone() }
         }
 
@@ -260,7 +260,7 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
 
     /**
      * Применяет пресет сглаживания
-     * @param preset "off", "responsive", "balanced", "smooth"
+     * @param preset «off», «responsive», «balanced» или «smooth»
      */
     fun applyPreset(preset: String) {
         when (preset.lowercase()) {

@@ -58,7 +58,7 @@ fun AppNavHost(
                         context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
             }
 
-            // Read capture source from preferences (re-reads when returning from settings)
+            // Источник захвата читаем из настроек — перечитывается при возврате с экрана настроек
             val captureSource = remember(navController.currentBackStackEntry) {
                 Preferences(context).getString(R.string.pref_key_capture_source, "screen")
                     ?: "screen"
@@ -141,7 +141,7 @@ fun AppNavHost(
                 )
             }
 
-            // Rating dialog
+            // Диалог оценки
             if (showRatingDialog) {
                 RatingDialog(
                     onDismiss = { showRatingDialog = false },
@@ -189,7 +189,7 @@ fun AppNavHost(
                             context.startActivity(intent)
                             showUrlDialog = null
                         } catch (e: Exception) {
-                            // Keep dialog open if link couldn't be opened
+                            // Если ссылку открыть не удалось, диалог оставляем открытым
                         }
                     }
                 )
@@ -198,7 +198,7 @@ fun AppNavHost(
         }
         composable(Screen.Settings.route) {
             val context = LocalContext.current
-            // Use a key based on back stack entry to reset state when navigating
+            // Ключ по записи в стеке навигации сбрасывает состояние при переходе
             val backStackEntry = navController.currentBackStackEntry
             key(backStackEntry?.id) {
                 LaunchedEffect(Unit) {

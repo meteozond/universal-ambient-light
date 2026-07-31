@@ -87,7 +87,7 @@ fun LedVisualization(
                 val width = size.width
                 val height = size.height
 
-                // Draw screen rectangle
+                // Прямоугольник экрана
                 val screenPadding = 60f
                 drawRect(
                     color = Color.Gray.copy(alpha = 0.3f),
@@ -99,7 +99,7 @@ fun LedVisualization(
                     style = Stroke(width = 2f)
                 )
 
-                // Draw capture area with separate margins for each side (as inner rectangle)
+                // Область захвата со своими отступами по каждой стороне — внутренний прямоугольник
                 val marginTop = captureMarginTop.coerceIn(0, 40)
                 val marginRight = captureMarginRight.coerceIn(0, 40)
                 val marginBottom = captureMarginBottom.coerceIn(0, 40)
@@ -123,7 +123,7 @@ fun LedVisualization(
                     )
                 }
 
-                // Calculate LED positions
+                // Считаем позиции светодиодов
                 var ledPositions = calculateLedPositions(
                     safeTop, safeRight, safeBottom, safeLeft,
                     startCorner, direction,
@@ -146,7 +146,7 @@ fun LedVisualization(
                     }
                 }
 
-                // Draw LEDs
+                // Рисуем светодиоды
                 if (ledPositions.isNotEmpty()) {
                     // Немного ограничим количество подписанных LED, чтобы не грузить слабые устройства
                     val maxLabeled = 200
@@ -184,7 +184,6 @@ fun LedVisualization(
                             else -> Color(0xFF2196F3) // Blue for others
                         }
 
-                        // Draw LED
                         if (ledData.rectSize.width > 0 && ledData.rectSize.height > 0) {
                             val topLeft = Offset(
                                 ledData.position.x - ledData.rectSize.width / 2f,
@@ -196,7 +195,7 @@ fun LedVisualization(
                                 size = ledData.rectSize,
                                 style = androidx.compose.ui.graphics.drawscope.Fill
                             )
-                            // Draw border for visibility
+                            // Обводка, чтобы светодиод был виден на светлом фоне
                             drawRect(
                                 color = if (index == 0) Color.White else Color.Black.copy(alpha = 0.5f),
                                 topLeft = topLeft,
@@ -204,7 +203,7 @@ fun LedVisualization(
                                 style = Stroke(width = if (index == 0) 2f else 1f)
                             )
                         } else {
-                            // Fallback
+                            // Запасной вариант
                             drawCircle(
                                 color = color,
                                 radius = if (index == 0) 18f else 8f,
@@ -218,7 +217,7 @@ fun LedVisualization(
                                 ledData.enabled -> enabledPaint
                                 else -> disabledPaint
                             }
-                            // Adjust text position slightly if rect
+                            // Для прямоугольника подпись слегка сдвигаем
                             val textY = if (ledData.rectSize.height > 0) {
                                 ledData.position.y + 7f
                             } else {

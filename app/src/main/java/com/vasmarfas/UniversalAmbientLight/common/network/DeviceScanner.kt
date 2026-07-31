@@ -49,7 +49,7 @@ class DeviceScanner(
     /**
      * Быстрая проверка открытых портов для определения типа устройства
      * Проверяет TCP 19400 (Hyperion) и UDP 4048, 19446 (WLED)
-     * @return Pair<hasHyperionPort, hasWledPort>
+     * @return пара «есть порт Hyperion, есть порт WLED»
      */
     @WorkerThread
     private fun checkDevicePorts(host: String): Pair<Boolean, Boolean> {
@@ -164,7 +164,7 @@ class DeviceScanner(
     }
 
     /**
-     * Get all found devices
+     * Возвращает все найденные устройства.
      */
     fun getFoundDevices(): List<DeviceDetector.DeviceInfo> {
         return foundDevices.toList()

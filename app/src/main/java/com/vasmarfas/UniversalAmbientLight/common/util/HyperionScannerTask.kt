@@ -8,8 +8,8 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 
 /**
- * Starts a network scan for a running Hyperion server
- * and posts progress and results
+ * Запускает сканирование сети в поисках работающего сервера Hyperion
+ * и сообщает о прогрессе и результатах.
  */
 class HyperionScannerTask(listener: Listener) {
     private val weakListener: WeakReference<Listener> = WeakReference(listener)

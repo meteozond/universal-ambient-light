@@ -7,13 +7,13 @@ import android.os.Bundle
 import android.os.IBinder
 
 /**
- * Standalone CLI entry point executed via:
+ * Отдельная точка входа для запуска из командной строки:
  *   su -c "CLASSPATH=<apk> app_process /system/bin
  *          com.vasmarfas.UniversalAmbientLight.common.util.UsbPermissionGranterCli
  *          <device_name> <uid>"
  *
- * Runs as root (uid 0) and calls the hidden IUsbManager.grantDevicePermission()
- * to grant USB permission without user interaction.
+ * Работает от root (uid 0) и вызывает скрытый IUsbManager.grantDevicePermission(),
+ * чтобы выдать разрешение на USB без участия пользователя.
  */
 fun main(args: Array<String>) {
     if (args.size < 2) {
@@ -26,7 +26,7 @@ fun main(args: Array<String>) {
     val targetUid = args[1].toInt()
 
     try {
-        // Get USB service via reflection (hidden API)
+        // Получаем службу USB через рефлексию (скрытый API)
         val serviceManagerClass = Class.forName("android.os.ServiceManager")
         val getService = serviceManagerClass.getMethod("getService", String::class.java)
         val binder = getService.invoke(null, "usb") as IBinder
@@ -37,20 +37,19 @@ fun main(args: Array<String>) {
             "IUsbManager.Stub.asInterface returned null"
         }
 
-        // Get device list: void getDeviceList(out Bundle devices)
+        // Список устройств: void getDeviceList(out Bundle devices)
         val getDeviceList = usbService.javaClass.getMethod("getDeviceList", Bundle::class.java)
         val bundle = Bundle()
         getDeviceList.invoke(usbService, bundle)
 
-        // Find the target device
-        // Bundle keys are device names, values are UsbDevice parcels
+        // Ищем нужное устройство. Ключи Bundle — имена устройств, значения — UsbDevice.
         bundle.classLoader = UsbDevice::class.java.classLoader
         var granted = false
         for (key in bundle.keySet()) {
             @Suppress("DEPRECATION")
             val device = bundle.getParcelable<UsbDevice>(key) ?: continue
             if (device.deviceName == targetDeviceName) {
-                // Try grantDevicePermission — signature varies by Android version:
+                // Пробуем grantDevicePermission — сигнатура зависит от версии Android:
                 //   API ≤33: grantDevicePermission(UsbDevice, int)
                 //   API ≥34: grantDevicePermission(UsbDevice, int, UserHandle)
                 try {

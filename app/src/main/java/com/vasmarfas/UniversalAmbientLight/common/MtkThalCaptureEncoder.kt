@@ -21,20 +21,20 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Screen capture encoder using MediaTek HIDL capture via libthal_capture.so.
+ * Захват экрана через MediaTek HIDL средствами libthal_capture.so.
  *
- * Uses do_capture_window() which talks to vendor.mediatek.hardware.capture@1.0
- * HIDL service and captures frames from the display pipeline (video + OSD)
- * using the hardware DIP engine — minimal CPU overhead (~3.5% at 1080p/60fps).
+ * Использует do_capture_window(), который обращается к HIDL-сервису
+ * vendor.mediatek.hardware.capture@1.0 и снимает кадры прямо с конвейера дисплея
+ * (видео и экранное меню) аппаратным движком DIP — процессор при этом почти
+ * не нагружается (около 3,5% на 1080p/60 кадров).
  *
- * Requires:
- *   - Root access
- *   - /dev/dma_heap/mtk_dip_capture_uncached (writable)
- *   - /vendor/lib/libthal_capture.so
+ * Требуется:
+ *   - root-доступ
+ *   - /dev/dma_heap/mtk_dip_capture_uncached (с правом записи)
  *
- * The binary (mtk_thal_capture_server) runs as root via su, loads the vendor
- * library, and streams raw RGB frames to stdout.
- * Protocol: per frame = 4 bytes LE width + 4 bytes LE height + (w*h*3) RGB bytes.
+ * Бинарник (mtk_thal_capture_server) запускается от root через su, подгружает библиотеку
+ * вендора и пишет сырые RGB-кадры в stdout.
+ * Формат: на кадр приходится 4 байта ширины LE + 4 байта высоты LE + (w*h*3) байт RGB.
  */
 class MtkThalCaptureEncoder(
     private val mContext: Context,
@@ -60,8 +60,8 @@ class MtkThalCaptureEncoder(
 
     init {
         calculateCaptureDimensions()
-        // Defer slow work (APK extraction, su exec) to the worker so the constructor
-        // — called from ScreenGrabberService on the main thread — returns immediately.
+        // Медленную работу (распаковку APK, запуск su) уводим в рабочий поток, чтобы
+        // конструктор, вызываемый из ScreenGrabberService на главном потоке, возвращался сразу.
         val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
         mThread = thread
         val handler = Handler(thread.looper)
@@ -72,12 +72,12 @@ class MtkThalCaptureEncoder(
     }
 
     private fun calculateCaptureDimensions() {
-        // Hardware DIP captures full screen at 1920x1080, the server downscales.
-        // 240p is enough for LED color sampling and keeps pipe bandwidth reasonable.
+        // Аппаратный DIP снимает весь экран в 1920x1080, уменьшает уже сервер.
+        // Для выборки цветов хватает 240p, и нагрузка на канал остаётся вменяемой.
         val aspectRatio = mScreenWidth.toFloat() / mScreenHeight.toFloat()
         mCaptureWidth = 426
         mCaptureHeight = (mCaptureWidth / aspectRatio).roundToInt()
-        // Ensure even
+        // Приводим к чётному
         mCaptureWidth = (mCaptureWidth + 1) and 0x7FFFFFFE.toInt()
         mCaptureHeight = (mCaptureHeight + 1) and 0x7FFFFFFE.toInt()
 
@@ -87,13 +87,13 @@ class MtkThalCaptureEncoder(
     private fun extractBinary(): File? {
         val destFile = File(mContext.filesDir, BINARY_NAME)
 
-        // Re-extract if APK is newer than cached binary (handles app updates)
+        // Распаковываем заново, если APK новее сохранённого бинарника (то есть после обновления)
         val apkLastModified = File(mContext.applicationInfo.sourceDir).lastModified()
         if (destFile.exists() && destFile.canExecute() && destFile.lastModified() >= apkLastModified) {
             return destFile
         }
 
-        // Try nativeLibraryDir on disk
+        // Сначала пробуем nativeLibraryDir на диске
         val nativeLibDir = mContext.applicationInfo.nativeLibraryDir
         val diskFile = File(nativeLibDir, "lib${BINARY_NAME}.so")
         if (diskFile.exists()) {
@@ -109,7 +109,7 @@ class MtkThalCaptureEncoder(
             }
         }
 
-        // Extract from APK zip
+        // Достаём из zip-архива APK
         try {
             val apkPath = mContext.applicationInfo.sourceDir
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "armeabi-v7a"
@@ -177,7 +177,7 @@ class MtkThalCaptureEncoder(
         }
 
         if (!mRunning) {
-            // stopRecording fired before the process launched.
+            // stopRecording сработал раньше, чем запустился процесс.
             try {
                 mProcess?.destroy()
             } catch (_: Exception) {
@@ -210,12 +210,12 @@ class MtkThalCaptureEncoder(
         private val sCheckInProgress = AtomicBoolean(false)
 
         /**
-         * Never blocks the caller. First call probes `su` on a daemon thread and
-         * returns false; subsequent calls return the cached result.
+         * Никогда не блокирует вызывающий поток. Первый вызов запускает проверку `su` в
+         * фоновом потоке и возвращает false; последующие отдают уже готовый результат.
          */
         fun isAvailable(): Boolean {
             sCachedAvailable?.let { return it }
-            // First caller starts the background probe; everyone else just sees false until it lands.
+            // Первый вызывающий запускает фоновую проверку, остальные до её конца видят false.
             if (sCheckInProgress.compareAndSet(false, true)) {
                 Thread {
                     try {
@@ -270,7 +270,7 @@ class MtkThalCaptureEncoder(
         val headerBuf = ByteArray(8)
 
         try {
-            // Read status header: magic (4B LE) + flags (4B LE)
+            // Читаем заголовок состояния: magic (4 байта LE) + флаги (4 байта LE)
             input.readFully(headerBuf)
             val statusBb = ByteBuffer.wrap(headerBuf).order(ByteOrder.LITTLE_ENDIAN)
             val magic = statusBb.getInt()
@@ -289,7 +289,7 @@ class MtkThalCaptureEncoder(
                     }
                 }
             } else {
-                // Old binary without status header — first 8 bytes are the first frame header
+                // Старый бинарник без заголовка состояния — первые 8 байт это уже заголовок кадра
                 val w = magic
                 val h = flags
                 if (w in 1..1920 && h in 1..1920) {
@@ -377,7 +377,7 @@ class MtkThalCaptureEncoder(
 
     @Suppress("UNUSED_PARAMETER")
     override fun setOrientation(orientation: Int) {
-        // Hardware capture handles orientation at the pipeline level
+        // Аппаратный захват сам разбирается с ориентацией на уровне конвейера
     }
 
     private fun stopInternal(disconnect: Boolean) {

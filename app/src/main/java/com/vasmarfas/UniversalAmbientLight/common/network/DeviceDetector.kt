@@ -38,8 +38,8 @@ class DeviceDetector {
         private val HYPERION_PORTS = listOf(19400)
 
         /**
-         * Detects device type by IP address
-         * Tries all possible port and protocol combinations
+         * Определяет тип устройства по IP-адресу, перебирая возможные сочетания
+         * портов и протоколов.
          */
         @JvmStatic
         fun detectDevice(host: String): DeviceInfo? {
@@ -59,7 +59,7 @@ class DeviceDetector {
         }
 
         /**
-         * Checks if device is WLED
+         * Проверяет, WLED ли это устройство.
          */
         private fun detectWLED(host: String, port: Int): DeviceInfo? {
             return when (port) {
@@ -172,7 +172,7 @@ class DeviceDetector {
         }
 
         /**
-         * Checks if device is Hyperion
+         * Проверяет, Hyperion ли это устройство.
          */
         private fun detectHyperion(host: String, port: Int): DeviceInfo? {
             try {

@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             }
 
-            // Only request permission for devices that our USB-Serial prober recognizes
+            // Разрешение спрашиваем только для устройств, которые распознаёт наш USB-Serial prober
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this@MainActivity,
                 device = device,
@@ -148,9 +148,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enable Edge-to-Edge mode manually to avoid using deprecated LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        // which Google Play flags in Android 15. Android 15+ (API 35+) requires LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS by default.
-        // This mode is available from Android 11 (API 30).
+        // Режим edge-to-edge включаем вручную, чтобы не трогать устаревший
+        // LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES, на который ругается Google Play в Android 15.
+        // С Android 15 (API 35) по умолчанию требуется LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS, он доступен с Android 11 (API 30).
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.attributes.layoutInDisplayCutoutMode =
@@ -165,7 +165,7 @@ class MainActivity : ComponentActivity() {
         mMediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
-        // Defer the Play update check to the next main-loop cycle — keeps onCreate cheap on TV.
+        // Проверку обновлений Play откладываем на следующий цикл главного цикла — onCreate на ТВ должен быть дешёвым.
         appUpdateManager = AppUpdateManagerFactory.create(this)
         window.decorView.post { checkForUpdates() }
 
@@ -177,7 +177,7 @@ class MainActivity : ComponentActivity() {
         )
         checkForInstance()
 
-        // Request notification permission for Android 13+
+        // Разрешение на уведомления для Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission()
         }
@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
 
-        // log battery-opt exemption grant once per install
+        // Факт выдачи исключения из энергосбережения логируем один раз на установку
         run {
             val p = Preferences.defaultSharedPreferences(this)
             val loggedKey = "battery_opt_granted_logged"
@@ -269,7 +269,7 @@ class MainActivity : ComponentActivity() {
                 if (appUpdateInfo.updateAvailability()
                     == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
                 ) {
-                    // If an in-app update is already running, resume the update.
+                    // Обновление уже идёт — продолжаем его.
                     appUpdateManager.startUpdateFlowForResult(
                         appUpdateInfo,
                         AppUpdateType.IMMEDIATE,
@@ -279,7 +279,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-        // Auto-request USB permission when a USB-Serial device is already connected while app is open.
+        // Если USB-устройство уже подключено при открытом приложении, сразу просим разрешение.
         val prefs = Preferences(this)
         val connectionType =
             prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
@@ -344,8 +344,8 @@ class MainActivity : ComponentActivity() {
             == PackageManager.PERMISSION_GRANTED
         ) return
 
-        // shouldShowRequestPermissionRationale returns false both on the first ask AND
-        // after "Don't ask again" — disambiguate via a one-time pref so we stop spamming.
+        // shouldShowRequestPermissionRationale возвращает false и при первом запросе, и после
+        // «Больше не спрашивать» — различаем их одноразовой настройкой, чтобы не докучать.
         val prefs = Preferences.defaultSharedPreferences(this)
         val askedBefore = prefs.getBoolean(PREF_NOTIF_PERMISSION_ASKED, false)
         if (askedBefore && !ActivityCompat.shouldShowRequestPermissionRationale(
@@ -387,8 +387,8 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleScreenCapture() {
         if (!mRecorderRunning) {
-            // Catch missing host/port/LED counts here — otherwise the user walks through the
-            // overlay and MediaProjection dialogs only to get a toast from the service.
+            // Ловим отсутствующие адрес, порт и количество светодиодов здесь, иначе пользователь
+            // пройдёт диалоги наложения и MediaProjection только ради toast от сервиса.
             ScreenGrabberService.validateSettings(this)?.let { error ->
                 Log.d(TAG, "Start aborted, settings incomplete: ${error.code}")
                 AnalyticsHelper.logServiceError(this, "setup_required_${error.code}", error.details)
@@ -434,7 +434,7 @@ class MainActivity : ComponentActivity() {
 
         if (method != "media_projection") {
             Log.d(TAG, "Alternative capture mode ($method) enabled — starting service directly")
-            // startScreencapRecorder now handles all alternative methods (renaming it to startAlternativeRecorder would be cleaner, but keeping name for compatibility with existing BootActivity method)
+            // startScreencapRecorder обрабатывает все альтернативные методы; имя оставлено прежним ради совместимости с BootActivity
             BootActivity.startAlternativeRecorder(this)
             mRecorderRunning = true
             beginCaptureSession(
@@ -446,16 +446,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // On TCL and other restricted devices, try shell bypass first
+        // На TCL и других устройствах с ограничениями сначала пробуем shell-обход
         if (TclBypass.isTclDevice() || TclBypass.isRestrictedManufacturer()) {
             Log.d(TAG, "Detected TCL/restricted device, trying shell bypass")
             TclBypass.tryShellBypass(this)
         }
 
-        // Also try general shell permissions
+        // Заодно пробуем общие shell-разрешения
         PermissionHelper.tryGrantProjectMediaViaShell(this)
 
-        // Check overlay permission on first attempt
+        // На первой попытке проверяем разрешение на наложение поверх окон
         if (mPermissionDeniedCount == 0 && !PermissionHelper.canDrawOverlays(this)) {
             Log.d(TAG, "Requesting overlay permission first")
             AnalyticsHelper.logPermissionRequested(this, "SYSTEM_ALERT_WINDOW")
@@ -525,8 +525,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Before starting screen capture for Adalight, check and request USB permission.
-     * For Hyperion/WLED, just execute [onReady].
+     * Перед запуском захвата для Adalight проверяем и запрашиваем разрешение на USB.
+     * Для Hyperion и WLED просто выполняем [onReady].
      */
     private fun ensureUsbPermissionForAdalight(onReady: () -> Unit) {
         val prefs = Preferences(this)
@@ -556,8 +556,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 Log.e(TAG, "Update flow failed! Result code: $resultCode")
                 AnalyticsHelper.logAppUpdateCancelled(this)
-                // If the update is cancelled or fails,
-                // you can request to start the update again.
+                // Если обновление отменено или не удалось, его можно запросить снова.
             }
         }
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
@@ -665,11 +664,11 @@ class MainActivity : ComponentActivity() {
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
-                // This example applies an immediate update. To apply a flexible update
-                // instead, pass in AppUpdateType.FLEXIBLE
+                // Здесь применяется немедленное обновление; для гибкого нужно передать
+                // AppUpdateType.FLEXIBLE.
                 && appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
             ) {
-                // Request the update
+                // Запрашиваем обновление
                 try {
                     AnalyticsHelper.logAppUpdateRequested(this, "immediate")
                     appUpdateManager.startUpdateFlowForResult(

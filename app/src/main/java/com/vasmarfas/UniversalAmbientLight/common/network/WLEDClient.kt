@@ -53,7 +53,7 @@ class WLEDClient(
     private val mSmoothing: ColorSmoothing
     private var mLedDataBuffer: Array<ColorRgb>? = null
 
-    // KeepAlive
+    // Поддержание соединения
     private val mKeepAliveExecutor = Executors.newSingleThreadScheduledExecutor()
     private val mResumeExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "WLEDClient-resume").apply { isDaemon = true }
@@ -70,12 +70,12 @@ class WLEDClient(
     private var mDdpSequenceNumber = 1 // 1-15, 0 ignored
 
     init {
-        // Validate port range (1-65535)
+        // Порт должен попадать в диапазон 1-65535
         if (port > 65535) {
             throw IllegalArgumentException("Port out of range: $port (must be between 1 and 65535)")
         }
 
-        // Use default port based on protocol if not specified
+        // Если порт не задан, берём значение по умолчанию для выбранного протокола
         if (port <= 0 || port == 80) {
             mPort = if (mProtocol == Protocol.DDP) DEFAULT_PORT_DDP else DEFAULT_PORT_DRGB
         } else {
@@ -104,7 +104,7 @@ class WLEDClient(
         mKeepAliveExecutor.scheduleWithFixedDelay({
             val lastLeds = mLastLeds
             if (mPaused || !mConnected || lastLeds == null) return@scheduleWithFixedDelay
-            // Resend last frame to keep alive
+            // Повторяем последний кадр, чтобы соединение не считалось потерянным
             sendLedData(lastLeds)
         }, 1000, 1000, TimeUnit.MILLISECONDS)
     }
@@ -166,11 +166,11 @@ class WLEDClient(
     }
 
     /**
-     * Resets data send block after EPERM error.
-     * Called on screen wake to resume data sending.
-     * Also reconnects if connection was lost and sends last frame.
-     * Resets block immediately (synchronously) for instant resume.
-     * Network operations run in background thread to avoid NetworkOnMainThreadException.
+     * Снимает блокировку отправки, поставленную после ошибки EPERM.
+     * Вызывается при пробуждении экрана, чтобы возобновить передачу; заодно
+     * переподключается, если соединение было потеряно, и отправляет последний кадр.
+     * Саму блокировку снимает синхронно, чтобы возобновление было мгновенным, а сетевые
+     * операции уводит в фоновый поток — иначе получим NetworkOnMainThreadException.
      */
     fun resetBlocked() {
         val wasBlocked = mBlockedUntilMs.get() > System.currentTimeMillis()
@@ -184,8 +184,8 @@ class WLEDClient(
         }
 
         val hadConnection = isConnected()
-        // Snapshot once — mLastLeds is @Volatile so the read is safe; the copy
-        // protects us from concurrent mutation by sendLedData on another thread.
+        // Снимок делаем один раз: mLastLeds помечено @Volatile, так что чтение безопасно, а
+        // копия защищает от параллельной правки из sendLedData в другом потоке.
         val snapshot = mLastLeds?.let { Array(it.size) { i -> it[i].clone() } }
 
         if (mResumeExecutor.isShutdown) return
@@ -209,7 +209,7 @@ class WLEDClient(
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
-            // Disconnect happened concurrently — fine, nothing to resume.
+            // Параллельно случился disconnect — возобновлять нечего.
         }
     }
 
@@ -271,7 +271,6 @@ class WLEDClient(
             throw IOException("Not connected to WLED")
         }
 
-        // Extract LED data reusing buffer
         val leds = LedDataExtractor.extractLEDData(mContext, data, width, height, mLedDataBuffer)
         mLedDataBuffer = leds
         if (leds.isEmpty()) return
@@ -281,23 +280,23 @@ class WLEDClient(
 
     private fun sendLedData(leds: Array<ColorRgb>) {
         if (!isConnected() || mPaused) return
-        // Volatile reference — keepalive sees either the previous or the new array.
+        // Ссылка volatile — keepalive увидит либо прежний массив, либо новый.
         mLastLeds = leds
 
-        // On some Android TV firmware cuts UDP sending (sendto EPERM) during SCREEN_OFF.
-        // Don't try sending every iteration to avoid log spam and CPU waste.
+        // Часть прошивок Android TV режет отправку UDP (sendto даёт EPERM) при SCREEN_OFF.
+        // Не пытаемся слать на каждой итерации, чтобы не засорять лог и не жечь процессор.
         val now = System.currentTimeMillis()
         val blockedUntil = mBlockedUntilMs.get()
         if (now < blockedUntil) return
 
         try {
-            // Log occasionally for debugging
+            // Изредка пишем в лог для диагностики
             if (System.currentTimeMillis() % 2000 < 100) {
                 if (logsEnabled) Log.d(
                     TAG,
                     "sendLedData: sending ${leds.size} LEDs via ${if (mProtocol == Protocol.DDP) "DDP" else "UDP Raw"} to $mAddress:$mPort"
                 )
-                // Sample first few LEDs
+                // Показываем первые несколько светодиодов
                 if (leds.isNotEmpty()) {
                     val sample = leds.take(5).mapIndexed { idx, led ->
                         "[$idx: R=${led.red}, G=${led.green}, B=${led.blue}]"
@@ -312,12 +311,12 @@ class WLEDClient(
                     sendPacket(packet)
                 }
             } else {
-                // Fallback to UDP Raw
+                // Запасной путь — UDP raw
                 sendUdpRaw(leds)
             }
 
-            // If send succeeded, consider device "awake" and reset block.
-            // This protects against rare cases when ACTION_SCREEN_ON didn't arrive but network is available.
+            // Отправка прошла — считаем устройство проснувшимся и снимаем блокировку.
+            // Это спасает в редких случаях, когда ACTION_SCREEN_ON не пришёл, а сеть уже доступна.
             mBlockedUntilMs.set(0L)
         } catch (e: IOException) {
             val msg = e.message ?: ""
@@ -342,7 +341,7 @@ class WLEDClient(
         val socket = mSocket
         val address = mAddress
         if (socket == null || address == null) {
-            // Socket or address became null, mark as disconnected
+            // Сокет или адрес обнулились — помечаем соединение потерянным
             mConnected = false
             return
         }
@@ -350,17 +349,17 @@ class WLEDClient(
         try {
             socket.send(datagramPacket)
         } catch (e: IOException) {
-            // On Android TV during sleep EPERM may occur on sendto.
-            // Try recreating socket - allows self-recovery after wake.
+            // На Android TV во сне sendto может вернуть EPERM. Пересоздаём сокет —
+            // это позволяет восстановиться самостоятельно после пробуждения.
             reconnectIfNeeded()
             throw e
         } catch (e: NullPointerException) {
-            // Race condition: socket became null during send
+            // Гонка: сокет обнулился прямо во время отправки
             mConnected = false
         }
     }
 
-    // DDP Protocol Implementation
+    // Реализация протокола DDP
     private fun createDdpPackets(leds: Array<ColorRgb>): List<ByteArray> {
         val packets = ArrayList<ByteArray>()
         val bytesPerPixel = bytesPerPixel()
@@ -379,7 +378,7 @@ class WLEDClient(
 
             val packet = ByteArray(DDP_HEADER_SIZE + packetDataSize)
 
-            // Header
+            // Заголовок
             packet[0] = (0x40 or (if (isLastPacket) 0x01 else 0x00)).toByte() // VER1 | PUSH
             packet[1] = 0 // Sequence number 0 (ignored by receiver)
             // Байт типа данных DDP: старший бит — customer defined, биты 5-3 задают формат
@@ -392,14 +391,14 @@ class WLEDClient(
 
             packet[3] = 0x01 // ID: DISPLAY
 
-            // Offset (Big Endian)
+            // Смещение (big endian)
             val offset = channelOffset // Offset in BYTES (channels)
             packet[4] = ((offset shr 24) and 0xFF).toByte()
             packet[5] = ((offset shr 16) and 0xFF).toByte()
             packet[6] = ((offset shr 8) and 0xFF).toByte()
             packet[7] = (offset and 0xFF).toByte()
 
-            // Length (Big Endian)
+            // Длина (big endian)
             packet[8] = ((packetDataSize shr 8) and 0xFF).toByte()
             packet[9] = (packetDataSize and 0xFF).toByte()
 
@@ -411,7 +410,7 @@ class WLEDClient(
                 )
             }
 
-            // Data
+            // Данные
             var dataIdx = DDP_HEADER_SIZE
             val ledsProcessed = channelOffset / bytesPerPixel
             val ledsInThisPacket = packetDataSize / bytesPerPixel
@@ -427,7 +426,7 @@ class WLEDClient(
         return packets
     }
 
-    // Legacy UDP Raw (DRGB/DNRGB)
+    // Устаревший UDP raw (DRGB/DNRGB)
     @Throws(IOException::class)
     private fun sendUdpRaw(leds: Array<ColorRgb>) {
         val ledCount = leds.size
@@ -455,7 +454,7 @@ class WLEDClient(
             packet = createDRGBPacket(leds)
             sendPacket(packet)
         } else {
-            // Split
+            // Разбиваем на несколько пакетов
             var startIndex = 0
             var remaining = ledCount
             while (remaining > 0) {
@@ -511,8 +510,8 @@ class WLEDClient(
     }
 
     private fun normalizeOrderForUdpRaw(order: String): String {
-        // WLED UDP Raw path may apply channel mapping differently from DDP on some setups.
-        // Rotate order right by one step so UI color-order labels remain consistent between protocols.
+        // В режиме UDP raw WLED на части конфигураций раскладывает каналы иначе, чем в DDP.
+        // Сдвигаем порядок на шаг вправо, чтобы подписи порядка цветов в UI означали одно и то же в обоих протоколах.
         return when (order.lowercase()) {
             "rgb" -> "brg"
             "grb" -> "bgr"
@@ -611,12 +610,12 @@ class WLEDClient(
         private const val DEFAULT_PORT_DDP = 4048
         private const val DEFAULT_PORT_DRGB = 19446
 
-        // DDP Constants
+        // Константы DDP
         private const val DDP_HEADER_SIZE = 10
         private const val DDP_MAX_LEDS_PER_PACKET = 480
         private const val DDP_CHANNELS_PER_PACKET = DDP_MAX_LEDS_PER_PACKET * 3
 
-        // UDP Raw Constants
+        // Константы UDP raw
         private const val PROTOCOL_DRGB: Byte = 2
         private const val PROTOCOL_DRGBW: Byte = 3
         private const val PROTOCOL_DNRGB: Byte = 4

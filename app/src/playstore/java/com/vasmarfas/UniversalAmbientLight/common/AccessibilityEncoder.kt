@@ -4,9 +4,9 @@ import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
 
 /**
- * Play Store stub. Mirrors the "full" encoder's public surface so shared code compiles,
- * but is never instantiated here: AccessibilityCaptureService.getInstance() returns null
- * in this flavor, so the capture path that builds this encoder is unreachable.
+ * Заглушка для Google Play. Повторяет публичный интерфейс энкодера из флейвора full, чтобы
+ * общий код компилировался, но здесь он не создаётся: AccessibilityCaptureService.getInstance()
+ * в этом флейворе возвращает null, поэтому путь захвата с этим энкодером недостижим.
  */
 @Suppress("UNUSED_PARAMETER")
 class AccessibilityEncoder(

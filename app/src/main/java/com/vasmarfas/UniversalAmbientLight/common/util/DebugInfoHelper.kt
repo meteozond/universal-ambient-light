@@ -78,14 +78,14 @@ object DebugInfoHelper {
         return sb.toString()
     }
 
-    // ── CPU ─────────────────────────────────────────────────────────────────
+    // ── Процессор ───────────────────────────────────────────────────────────
     private fun appendCpuInfo(sb: StringBuilder) {
         sb.append("=== CPU ===\n")
         val cores = Runtime.getRuntime().availableProcessors()
         sb.append("Cores: $cores\n")
         sb.append("ABIs: ${Build.SUPPORTED_ABIS.joinToString(", ")}\n")
 
-        // Load average (instant, no sampling): 1 / 5 / 15 min run-queue length.
+        // Средняя загрузка (мгновенно, без выборки): длина очереди за 1, 5 и 15 минут.
         try {
             val loadavg = File("/proc/loadavg").readText().trim().split(Regex("\\s+"))
             if (loadavg.size >= 3) {
@@ -95,7 +95,7 @@ object DebugInfoHelper {
             sb.append("Load avg: n/a (${e.javaClass.simpleName})\n")
         }
 
-        // Per-core current/max frequency (kHz → MHz). May be blocked by SELinux.
+        // Текущая и максимальная частота по ядрам (кГц → МГц). SELinux может это закрыть.
         val freqs = StringBuilder()
         var freqReadable = false
         for (i in 0 until cores) {
@@ -123,7 +123,7 @@ object DebugInfoHelper {
         null
     }
 
-    // ── Memory ──────────────────────────────────────────────────────────────
+    // ── Память ──────────────────────────────────────────────────────────────
     private fun appendMemoryInfo(sb: StringBuilder, context: Context) {
         sb.append("=== MEMORY (RAM) ===\n")
         try {
@@ -142,7 +142,7 @@ object DebugInfoHelper {
         sb.append("App heap used/max: ${formatBytes(usedHeap)} / ${formatBytes(rt.maxMemory())}\n\n")
     }
 
-    // ── GPU / video core ──────────────────────────────────────────────────────
+    // ── Графика и видеоядро ─────────────────────────────────────────────────
     private fun appendGpuInfo(sb: StringBuilder) {
         sb.append("=== GPU ===\n")
         val gpu = queryGpu()
@@ -158,7 +158,7 @@ object DebugInfoHelper {
 
     private data class GpuInfo(val vendor: String, val renderer: String, val version: String)
 
-    /** Spins up a tiny off-screen EGL/GLES2 context to read the GL driver strings. */
+    /** Поднимает крошечный закадровый контекст EGL/GLES2, чтобы прочитать строки драйвера GL. */
     private fun queryGpu(): GpuInfo? {
         val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         if (display == EGL14.EGL_NO_DISPLAY) return null
@@ -213,7 +213,7 @@ object DebugInfoHelper {
         }
     }
 
-    // ── Video codecs / hardware-encode capability ─────────────────────────────
+    // ── Видеокодеки и аппаратное кодирование ────────────────────────────────
     private fun appendHardwareCodecs(sb: StringBuilder) {
         sb.append("=== VIDEO CODECS ===\n")
         try {
@@ -237,7 +237,7 @@ object DebugInfoHelper {
                 }
             }
 
-            // Verdict — this is what decides whether smooth on-device (scrcpy) capture is possible.
+            // Вердикт: именно он решает, возможен ли плавный захват на устройстве (scrcpy).
             if (hwEncoders.isEmpty()) {
                 sb.append("HW video ENCODER: NONE\n")
                 sb.append("  -> on-device encode (scrcpy/screenrecord) is software only = heavy\n")
@@ -271,7 +271,7 @@ object DebugInfoHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             info.isHardwareAccelerated
         } else {
-            // Pre-Q heuristic: Google/AOSP software codecs use these prefixes.
+            // Эвристика для версий до Q: программные кодеки Google и AOSP имеют такие префиксы.
             val n = info.name.lowercase(Locale.ROOT)
             !n.startsWith("omx.google.") && !n.startsWith("c2.android.")
         }

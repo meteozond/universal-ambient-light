@@ -16,7 +16,7 @@ import com.vasmarfas.UniversalAmbientLight.R
 @Composable
 internal fun ColumnScope.BorderDetectionSection(prefs: Preferences, state: SettingsScreenState) {
     val context = LocalContext.current
-    // Letterbox (black bar) detection (issue #23).
+    // Определение чёрных полос, letterbox (issue #23).
     SettingsGroup(title = stringResource(R.string.pref_group_border_detection)) {
         val rgbUnit = stringResource(R.string.unit_rgb)
         val framesUnit = stringResource(R.string.unit_frames)

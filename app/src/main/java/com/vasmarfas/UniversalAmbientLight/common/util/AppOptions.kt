@@ -8,8 +8,8 @@ class AppOptions(
     val frameRate: Int,
     val useAverageColor: Boolean,
     val captureQuality: Int,
-    // Color-correction state is mutable so the service can push live preference
-    // changes into an already-running capture session without restarting it.
+    // Настройки цветокоррекции изменяемые: сервис подставляет сюда правки пользователя
+    // прямо в идущую сессию захвата, не перезапуская её.
     @Volatile var brightness: Int = 100,
     @Volatile var contrast: Int = 100,
     @Volatile var blackLevel: Int = 0,
@@ -25,8 +25,8 @@ class AppOptions(
     @Volatile var borderDetectionEnabled: Boolean = false,
     @Volatile var borderThreshold: Int = 18,
     @Volatile var borderCheckIntervalFrames: Int = 60,
-    // Camera auto-sleep. Mutable like the color settings because the thresholds can only
-    // be calibrated against a live camera feed.
+    // Автосон камеры. Изменяемый по той же причине, что и цвет: пороги подбираются только
+    // вживую под работающей камерой.
     @Volatile var cameraIdleEnabled: Boolean = false,
     @Volatile var cameraIdleTimeoutSec: Int = 120,
     @Volatile var cameraIdleDarkLevel: Int = 12,
@@ -34,7 +34,7 @@ class AppOptions(
     @Volatile var cameraIdleStaticSleep: Boolean = false,
 ) {
 
-    /** Reload camera auto-sleep fields from preferences. */
+    /** Перечитывает поля автосна камеры из настроек. */
     fun refreshCameraIdleSettings(prefs: Preferences) {
         cameraIdleEnabled = prefs.getBoolean(
             com.vasmarfas.UniversalAmbientLight.R.string.pref_key_camera_idle_enabled,
@@ -58,7 +58,7 @@ class AppOptions(
         )
     }
 
-    /** Reload border-detection fields from preferences. */
+    /** Перечитывает поля определения чёрных полос из настроек. */
     fun refreshBorderSettings(prefs: Preferences) {
         borderDetectionEnabled = prefs.getBoolean(
             com.vasmarfas.UniversalAmbientLight.R.string.pref_key_border_detection_enabled,
@@ -74,7 +74,7 @@ class AppOptions(
             .coerceIn(1, 300)
     }
 
-    /** Reload all color-correction fields from preferences. Cheap; safe to call from any thread. */
+    /** Перечитывает все поля цветокоррекции из настроек. Дёшево, вызывать можно из любого потока. */
     fun refreshColorSettings(prefs: Preferences) {
         brightness = prefs.getInt(
             com.vasmarfas.UniversalAmbientLight.R.string.pref_key_color_brightness,
@@ -120,10 +120,10 @@ class AppOptions(
 
     init {
         /*
-        * To determine the minimal acceptable image packet size we take the count of the width & height
-        * of the LED pixels (that the user is driving via their hyperion server) and multiply them
-        * together and then by 3 (1 for each color in RGB). This will give us the count of the bytes
-        * that the minimal acceptable quality should be equal to or greater than.
+        * Минимально допустимый размер пакета с картинкой считается так: берём количество
+        * светодиодов по ширине и высоте (столько их выставлено на сервере Hyperion),
+        * перемножаем и умножаем на 3 — по байту на каждый канал RGB. Получается число
+        * байт, до которого пакет должен дотягивать.
         **/
         minimumImagePacketSize = horizontalLED * verticalLED * 3
 
@@ -135,26 +135,26 @@ class AppOptions(
     }
 
     /**
-     * returns the divisor best suited to be used to meet the minimum image packet size
-     * Since we only want to scale using whole numbers, we need to find what common divisors
-     * are available for the given width & height. We will check those divisors to find the smallest
-     * number (that we can divide our screen dimensions by) that would meet the minimum image
-     * packet size required to match the count of the LEDs on the destination hyperion server.
-     * @param width The original width of the device screen
-     * @param height  The original height of the device screen
-     * @return int The divisor bes suited to scale the screen dimensions by
+     * Подбирает делитель, при котором пакет дотягивает до минимального размера.
+     * Масштабировать хочется только целыми числами, поэтому ищем общие делители ширины и
+     * высоты и среди них берём наименьший, при котором размер пакета всё ещё не меньше
+     * требуемого числом светодиодов на сервере Hyperion.
+     *
+     * @param width исходная ширина экрана устройства
+     * @param height исходная высота экрана устройства
+     * @return делитель, на который стоит уменьшить размеры экрана
      */
     fun findDivisor(width: Int, height: Int): Int {
         val divisors = getCommonDivisors(width, height)
         if (DEBUG) Log.d(TAG, "Available Divisors: $divisors")
         val it = divisors.listIterator(divisors.size)
 
-        // iterate backwards since the divisors are listed largest to smallest
+        // Идём с конца: делители перечислены от большего к меньшему
         while (it.hasPrevious()) {
             val i = it.previous()
 
-            // check if the image packet size for this divisor is >= the minimum image packet size
-            // like above we multiply the dimensions together and then by 3 for each byte in RGB
+            // Проверяем, что при этом делителе размер пакета не меньше минимального:
+            // как и выше, перемножаем размеры и умножаем на 3 байта RGB
             if ((width / i) * (height / i) * 3 >= minimumImagePacketSize)
                 return i
         }
@@ -166,10 +166,10 @@ class AppOptions(
         private const val TAG = "AppOptions"
 
         /**
-         * gets a list of all the common divisors [large to small] for the given integers.
-         * @param num1 The first integer to find a whole number divisor for
-         * @param num2  The second integer to find a whole number divisor for
-         * @return List A list of the common divisors [large to small] that match the provided integers
+         * Возвращает все общие делители двух чисел, от большего к меньшему.
+         * @param num1 первое число
+         * @param num2 второе число
+         * @return список общих делителей от большего к меньшему
          */
         private fun getCommonDivisors(num1: Int, num2: Int): List<Int> {
             val list = ArrayList<Int>()

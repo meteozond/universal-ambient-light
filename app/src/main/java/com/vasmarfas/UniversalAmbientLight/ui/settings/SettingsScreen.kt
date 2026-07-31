@@ -89,7 +89,7 @@ fun SettingsScreen(
     if (state.showAccessibilityDisclosure) {
         AlertDialog(
             onDismissRequest = {
-                // Revert change if dismissed without accepting
+                // Отказ без подтверждения — возвращаем прежний метод
                 state.captureMethod = state.previousCaptureMethod
                 prefs.putString(R.string.pref_key_capture_method, state.previousCaptureMethod)
                 state.showAccessibilityDisclosure = false
@@ -100,7 +100,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         state.showAccessibilityDisclosure = false
-                        // Apply change
+                        // Применяем выбор
                         state.captureMethod = "accessibility"
                         prefs.putString(R.string.pref_key_capture_method, "accessibility")
                         AnalyticsHelper.logSettingChanged(
@@ -109,7 +109,7 @@ fun SettingsScreen(
                             "accessibility"
                         )
 
-                        // Open settings
+                        // Открываем настройки
                         openAccessibilitySettings(
                             context
                         )
@@ -121,7 +121,7 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
-                        // Revert change
+                        // Возвращаем прежний метод
                         state.captureMethod = state.previousCaptureMethod
                         prefs.putString(R.string.pref_key_capture_method, state.previousCaptureMethod)
                         state.showAccessibilityDisclosure = false
@@ -142,7 +142,7 @@ fun SettingsScreen(
                 val scrollState = rememberScrollState()
                 val focusRequester = remember { FocusRequester() }
                 val dpadScope = rememberCoroutineScope()
-                // Grab focus so the D-pad (TV remote) scrolls the content immediately.
+                // Забираем фокус, чтобы кнопки пульта сразу прокручивали содержимое.
                 LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
                 Column(
                     modifier = Modifier

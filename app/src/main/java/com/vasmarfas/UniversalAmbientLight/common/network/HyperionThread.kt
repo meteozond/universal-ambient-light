@@ -71,7 +71,7 @@ class HyperionThread(
             try {
                 mPendingTask = mExecutor.submit { sendPendingFrame() }
             } catch (_: RejectedExecutionException) {
-                // Executor was shut down between the isShutdown check and submit (disconnect race).
+                // Executor успели остановить между проверкой isShutdown и submit (гонка при отключении).
             }
         }
 
@@ -92,7 +92,7 @@ class HyperionThread(
                         FRAME_DURATION
                     )
                 }
-                // Keep a stable copy for keepalive resends.
+                // Держим стабильную копию для повторов keepalive.
                 mLastSentFrame = FrameData(frame.data.copyOf(), frame.width, frame.height)
 
                 if (client is HyperionFlatBuffers) {
@@ -201,7 +201,7 @@ class HyperionThread(
             if (mStandbyPaused.get()) return@scheduleWithFixedDelay
             val client = mClient.get() ?: return@scheduleWithFixedDelay
             if (!client.isConnected()) return@scheduleWithFixedDelay
-            // WLED and Adalight have their own keepalive logic.
+            // У WLED и Adalight своя логика keepalive.
             if (client !is HyperionFlatBuffers) return@scheduleWithFixedDelay
 
             val last = mLastSentFrame ?: return@scheduleWithFixedDelay
@@ -239,7 +239,7 @@ class HyperionThread(
 
     @Throws(IOException::class)
     private fun createClient(): HyperionClient? {
-        // Validate port range (1-65535)
+        // Порт должен попадать в диапазон 1-65535
         if (mPort < 1 || mPort > 65535) {
             throw IOException("Port out of range: $mPort (must be between 1 and 65535)")
         }
@@ -262,13 +262,12 @@ class HyperionThread(
                 mWledBrightness
             )
         } else if ("adalight".equals(mConnectionType, ignoreCase = true)) {
-            // AdalightClient (context, priority, baudrate, protocol, smoothingEnabled, smoothingPreset, settlingTime, outputDelayMs, updateFrequency)
             AdalightClient(
                 mContext, mPriority, mBaudRate, mAdalightProtocol,
                 mSmoothingEnabled, mSmoothingPreset, mSettlingTime, mOutputDelayMs, mUpdateFrequency
             )
         } else {
-            // Default to Hyperion
+            // По умолчанию — Hyperion
             HyperionFlatBuffers(host, mPort, mPriority)
         }
     }

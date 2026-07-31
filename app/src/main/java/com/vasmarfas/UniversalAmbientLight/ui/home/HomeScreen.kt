@@ -96,12 +96,12 @@ fun MainScreen(
     onLeaveReviewClick: () -> Unit = {},
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Camera mode background — show camera preview with corners
+        // В режиме камеры фоном идёт превью камеры с углами
         if (captureSource == "camera") {
             com.vasmarfas.UniversalAmbientLight.ui.camera.CameraPreviewBackground(isCapturing = isRunning)
         }
 
-        // Screen mode: Effects Background (only when running AND screen mode)
+        // В режиме экрана — анимированный фон, но только когда захват запущен
         if (isRunning && captureSource != "camera") {
             val infiniteTransition = rememberInfiniteTransition(label = "effects")
 
@@ -153,12 +153,12 @@ fun MainScreen(
                                 val h = size.height
                                 val thickness = h * 0.12f
 
-                                // Top - Red
+                                // Верх — красный
                                 drawRect(
                                     color = Color.Red,
                                     size = androidx.compose.ui.geometry.Size(w, thickness)
                                 )
-                                // Bottom - Blue
+                                // Низ — синий
                                 drawRect(
                                     color = Color.Blue,
                                     topLeft = androidx.compose.ui.geometry.Offset(
@@ -167,13 +167,13 @@ fun MainScreen(
                                     ),
                                     size = androidx.compose.ui.geometry.Size(w, thickness)
                                 )
-                                // Left - Yellow
+                                // Слева — жёлтый
                                 drawRect(
                                     color = Color.Yellow,
                                     topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
                                     size = androidx.compose.ui.geometry.Size(thickness, h)
                                 )
-                                // Right - Green
+                                // Справа — зелёный
                                 drawRect(
                                     color = Color.Green,
                                     topLeft = androidx.compose.ui.geometry.Offset(
@@ -322,7 +322,7 @@ fun MainScreen(
             }
         }
 
-        // Center Content with control buttons row
+        // Центральный блок с рядом кнопок управления
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -335,7 +335,7 @@ fun MainScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Effects Button (left)
+                // Кнопка эффектов (слева)
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -367,7 +367,7 @@ fun MainScreen(
                     }
                 }
 
-                // Power Button (center, largest)
+                // Кнопка включения (в центре, самая крупная)
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -411,7 +411,7 @@ fun MainScreen(
                     }
                 }
 
-                // Settings Button (right, smaller than power)
+                // Кнопка настроек (справа, меньше кнопки включения)
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -446,7 +446,7 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Status Text
+            // Строка состояния
             if (isRunning) {
                 Text(
                     text = stringResource(id = R.string.status_grabber_running),
@@ -460,7 +460,7 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Help and Support buttons column
+            // Столбец кнопок помощи и поддержки
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),

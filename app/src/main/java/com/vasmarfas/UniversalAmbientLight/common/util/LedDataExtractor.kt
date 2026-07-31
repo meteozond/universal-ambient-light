@@ -11,9 +11,9 @@ object LedDataExtractor {
     private val logsEnabled = false
 
     /**
-     * Extract LED data reusing an existing buffer to avoid GC overhead.
-     * @param reuseBuffer Optional buffer to reuse. If null or wrong size, a new one is allocated.
-     * @return The array containing extracted data (either reused or new).
+     * Достаёт цвета светодиодов, переиспользуя переданный буфер, чтобы не нагружать сборщик мусора.
+     * @param reuseBuffer буфер для повторного использования; при null или неподходящем размере выделяется новый.
+     * @return массив с результатом — переиспользованный или новый.
      */
     fun extractLEDData(
         context: Context,
@@ -129,8 +129,8 @@ object LedDataExtractor {
     }
 
     /**
-     * Extract perimeter pixels from 2D screen data
-     * Order depends on start corner and direction
+     * Берёт пиксели по периметру двумерной картинки экрана.
+     * Порядок обхода зависит от стартового угла и направления.
      */
     private fun extractPerimeterPixels(
         screenData: ByteArray,
@@ -160,7 +160,7 @@ object LedDataExtractor {
         val bottomCount = bottomLed.coerceAtLeast(0)
         val leftCount = leftLed.coerceAtLeast(0)
 
-        // Calculate total LEDs considering which sides are installed
+        // Считаем общее число светодиодов с учётом того, какие стороны включены
         var totalLEDs = 0
         if (sideTop != "not_installed") totalLEDs += topCount
         if (sideRight != "not_installed") totalLEDs += rightCount
@@ -168,7 +168,6 @@ object LedDataExtractor {
         if (sideLeft != "not_installed") totalLEDs += leftCount
         if (totalLEDs == 0) return emptyArray()
 
-        // Diagnostic logging
         val expectedSize = width * height * 3
         if (logsEnabled) Log.d(
             TAG,
@@ -193,7 +192,7 @@ object LedDataExtractor {
 
         var ledIdx = 0
 
-        // Calculate capture area with separate margins for each side
+        // Область захвата со своим отступом для каждой стороны
         val marginTop = captureMarginTop.coerceIn(0, 40)
         val marginRight = captureMarginRight.coerceIn(0, 40)
         val marginBottom = captureMarginBottom.coerceIn(0, 40)
@@ -212,7 +211,7 @@ object LedDataExtractor {
         val captureWidth = (captureRight - captureLeft).coerceAtLeast(1f)
         val captureHeight = (captureBottom - captureTop).coerceAtLeast(1f)
 
-        // Calculate scan depth in pixels
+        // Глубина сканирования в пикселях
         val scanDepthV = (captureHeight * scanDepth / 100f).toInt().coerceAtLeast(1)
         val scanDepthH = (captureWidth * scanDepth / 100f).toInt().coerceAtLeast(1)
 
@@ -225,14 +224,13 @@ object LedDataExtractor {
         val stepBottom = sideStep(captureWidth, bottomCount)
         val stepLeft = sideStep(captureHeight, leftCount)
 
-        // Calculate gap range for bottom edge
+        // Диапазон разрыва для нижней стороны
         val gapStart = if (bottomGap > 0 && bottomCount > 0) (bottomCount - bottomGap) / 2 else -1
         val gapEnd = if (bottomGap > 0 && bottomCount > 0) gapStart + bottomGap else -1
 
-        // Determine edge order based on start corner and direction
+        // Порядок обхода сторон по стартовому углу и направлению
         val edges = getEdgeOrder(startCorner, direction)
 
-        // Process each edge in order
         for (edge in edges) {
             val sideMode = when {
                 edge.startsWith("top_") -> sideTop
@@ -242,12 +240,12 @@ object LedDataExtractor {
                 else -> "enabled"
             }
 
-            // Skip if not installed
+            // Пропускаем выключенные стороны
             if (sideMode == "not_installed") continue
 
             when (edge) {
                 "top_lr" -> {
-                    // Top edge (left to right)
+                    // Верх, слева направо
                     for (i in 0 until topCount) {
                         if (sideMode == "enabled") {
                             val x = (captureLeft + i * stepTop).toInt()
@@ -271,12 +269,12 @@ object LedDataExtractor {
                 }
 
                 "top_rl" -> {
-                    // Top edge (right to left)
+                    // Верх, справа налево
                     for (i in 0 until topCount) {
                         if (sideMode == "enabled") {
-                            // Logic for RL: we iterate LEDs from 0..N-1, where 0 is rightmost.
-                            // Coordinates: x goes from Right to Left.
-                            // LED i corresponds to segment at (topCount - 1 - i).
+                            // Идём по светодиодам 0..N-1, где 0 — самый правый.
+                            // Координата x при этом движется справа налево, поэтому
+                            // светодиоду i соответствует отрезок (topCount - 1 - i).
                             val segmentIdx = topCount - 1 - i
                             val x = (captureLeft + segmentIdx * stepTop).toInt()
                             val w =
@@ -302,7 +300,7 @@ object LedDataExtractor {
                 }
 
                 "right_tb" -> {
-                    // Right edge (top to bottom)
+                    // Правый край, сверху вниз
                     for (i in 0 until rightCount) {
                         if (sideMode == "enabled") {
                             val x = (captureRight - scanDepthH).toInt()
@@ -327,7 +325,7 @@ object LedDataExtractor {
                 }
 
                 "right_bt" -> {
-                    // Right edge (bottom to top)
+                    // Правый край, снизу вверх
                     for (i in 0 until rightCount) {
                         if (sideMode == "enabled") {
                             val segmentIdx = rightCount - 1 - i
@@ -355,7 +353,7 @@ object LedDataExtractor {
                 }
 
                 "bottom_rl" -> {
-                    // Bottom edge (right to left)
+                    // Низ, справа налево
                     for (i in 0 until bottomCount) {
                         val ledIndex = bottomCount - 1 - i
                         val isInGap = bottomGap > 0 && ledIndex >= gapStart && ledIndex < gapEnd
@@ -385,7 +383,7 @@ object LedDataExtractor {
                 }
 
                 "bottom_lr" -> {
-                    // Bottom edge (left to right)
+                    // Низ, слева направо
                     for (i in 0 until bottomCount) {
                         val isInGap = bottomGap > 0 && i >= gapStart && i < gapEnd
                         if (sideMode == "enabled" && !isInGap) {
@@ -411,7 +409,7 @@ object LedDataExtractor {
                 }
 
                 "left_bt" -> {
-                    // Left edge (bottom to top)
+                    // Левый край, снизу вверх
                     for (i in 0 until leftCount) {
                         if (sideMode == "enabled") {
                             val segmentIdx = leftCount - 1 - i
@@ -439,7 +437,7 @@ object LedDataExtractor {
                 }
 
                 "left_tb" -> {
-                    // Left edge (top to bottom)
+                    // Левый край, сверху вниз
                     for (i in 0 until leftCount) {
                         if (sideMode == "enabled") {
                             val x = captureLeft.toInt()
@@ -464,12 +462,12 @@ object LedDataExtractor {
             }
         }
 
-        // Fill remaining if any (should not happen)
+        // Добиваем остаток, если он вдруг остался
         while (ledIdx < totalLEDs) {
             ledData[ledIdx++].set(0, 0, 0)
         }
 
-        // Apply LED offset (rotation along perimeter)
+        // Сдвиг светодиодов по периметру
         val offset = (ledOffset % totalLEDs + totalLEDs) % totalLEDs
         if (offset == 0) return ledData
 
@@ -483,54 +481,54 @@ object LedDataExtractor {
     }
 
     /**
-     * Determine edge processing order based on start corner and direction
-     * Clockwise: top→right→bottom→left
-     * Counterclockwise: opposite direction
+     * Порядок обхода сторон по стартовому углу и направлению.
+     * По часовой: верх → правая → низ → левая.
+     * Против часовой: в обратную сторону.
      */
     private fun getEdgeOrder(startCorner: String, direction: String): List<String> {
         return when (startCorner) {
             "top_left" -> {
                 if (direction == "clockwise") {
-                    // Start top-left, go clockwise: right along top, down right side, left along bottom, up left side
+                    // Из левого верхнего по часовой: вправо по верху, вниз справа, влево по низу, вверх слева
                     listOf("top_lr", "right_tb", "bottom_rl", "left_bt")
                 } else {
-                    // Start top-left, go counterclockwise: down left side, right along bottom, up right side, left along top
+                    // Из левого верхнего против часовой: вниз слева, вправо по низу, вверх справа, влево по верху
                     listOf("left_tb", "bottom_lr", "right_bt", "top_rl")
                 }
             }
 
             "top_right" -> {
                 if (direction == "clockwise") {
-                    // Start top-right, go clockwise: down right side, left along bottom, up left side, right along top
+                    // Из правого верхнего по часовой: вниз справа, влево по низу, вверх слева, вправо по верху
                     listOf("right_tb", "bottom_rl", "left_bt", "top_lr")
                 } else {
-                    // Start top-right, go counterclockwise: left along top, down left side, right along bottom, up right side
+                    // Из правого верхнего против часовой: влево по верху, вниз слева, вправо по низу, вверх справа
                     listOf("top_rl", "left_tb", "bottom_lr", "right_bt")
                 }
             }
 
             "bottom_right" -> {
                 if (direction == "clockwise") {
-                    // Start bottom-right, go clockwise: left along bottom, up left side, right along top, down right side
+                    // Из правого нижнего по часовой: влево по низу, вверх слева, вправо по верху, вниз справа
                     listOf("bottom_rl", "left_bt", "top_lr", "right_tb")
                 } else {
-                    // Start bottom-right, go counterclockwise: up right side, left along top, down left side, right along bottom
+                    // Из правого нижнего против часовой: вверх справа, влево по верху, вниз слева, вправо по низу
                     listOf("right_bt", "top_rl", "left_tb", "bottom_lr")
                 }
             }
 
             "bottom_left" -> {
                 if (direction == "clockwise") {
-                    // Start bottom-left, go clockwise: up left side, right along top, down right side, left along bottom
+                    // Из левого нижнего по часовой: вверх слева, вправо по верху, вниз справа, влево по низу
                     listOf("left_bt", "top_lr", "right_tb", "bottom_rl")
                 } else {
-                    // Start bottom-left, go counterclockwise: right along bottom, up right side, left along top, down left side
+                    // Из левого нижнего против часовой: вправо по низу, вверх справа, влево по верху, вниз слева
                     listOf("bottom_lr", "right_bt", "top_rl", "left_tb")
                 }
             }
 
             else -> {
-                // Default to top_left clockwise
+                // По умолчанию — из левого верхнего по часовой
                 if (logsEnabled) Log.w(TAG, "Unknown start corner: $startCorner, using default")
                 listOf("top_lr", "right_tb", "bottom_rl", "left_bt")
             }
@@ -562,12 +560,11 @@ object LedDataExtractor {
             return
         }
 
-        // Optimization: iterate directly
         for (y in startY until endY) {
             var idx = (y * width + startX) * 3
-            // Ensure we don't go out of bounds (though clamp above should handle it)
+            // Подстраховка по границам, хотя ограничение выше должно её покрывать
             if (idx + (endX - startX) * 3 > screenData.size) {
-                // Should not happen if width/height match screenData
+                // Не должно случаться, если width/height совпадают со screenData
                 continue
             }
 

@@ -21,18 +21,19 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 /**
- * Low-latency capture using `screenrecord --output-format=h264` streamed via ADB.
+ * Захват с низкой задержкой через `screenrecord --output-format=h264`, поток идёт по ADB.
  *
- * Architecture — 3 threads with a bounded queue to prevent data loss:
+ * Устройство — три потока и очередь ограниченного размера, чтобы не терять данные:
  *
- *   Thread 1 (readThread)   : ADB stream → mDataQueue
- *   Thread 2 (codecInThread): mDataQueue → MediaCodec input buffers (blocking, no drops)
- *   Thread 3 (codecOutThread): MediaCodec decoded YUV → direct RGB conversion → Hyperion
+ *   Поток 1 (readThread)    : поток ADB → mDataQueue
+ *   Поток 2 (codecInThread) : mDataQueue → входные буферы MediaCodec (с блокировкой, без потерь)
+ *   Поток 3 (codecOutThread): декодированный YUV → прямая конвертация в RGB → Hyperion
  *
- * Key optimisation: zero per-frame Bitmap allocations.
- * YUV planes are read directly into a reused byte buffer → no GC pressure.
+ * Главная оптимизация — ни одной аллокации Bitmap на кадр: плоскости YUV читаются прямо
+ * в переиспользуемый буфер, поэтому сборщик мусора не нагружается.
  *
- * Auto-restart when screenrecord exits (it has a 180-second default time limit on older Android).
+ * Сессия перезапускается сама, когда screenrecord завершается (на старых Android у него
+ * стоит ограничение в 180 секунд).
  */
 class ScreenrecordEncoder(
     private val mContext: Context,
@@ -48,18 +49,18 @@ class ScreenrecordEncoder(
     @Volatile
     private var mCapturing = false
 
-    // Reused across frames — no allocations in the hot path
+    // Переиспользуется между кадрами — в горячем пути аллокаций нет
     @Volatile
     private var mRgbBuffer: ByteArray? = null
     private val mBorderCropper = com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor()
 
-    // Bounded queue: read thread produces, codec-input thread consumes.
-    // 128 × 16KB chunks ≈ 2MB max backlog before applying back-pressure.
+    // Очередь ограниченного размера: поток чтения пишет, поток входа кодека читает.
+    // 128 кусков по 16 КБ — около 2 МБ отставания, дальше включается обратное давление.
     private val mDataQueue = ArrayBlockingQueue<ByteArray>(128)
 
     private var mSupervisorThread: Thread? = null
 
-    // Capture at 480p — enough detail for ambient lighting, far less codec load
+    // Снимаем в 480p: для подсветки детализации достаточно, а нагрузка на кодек куда меньше
     val mCapW: Int
     val mCapH: Int
 
@@ -91,7 +92,7 @@ class ScreenrecordEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Lifecycle
+    // Жизненный цикл
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun startCapture() {
@@ -128,8 +129,8 @@ class ScreenrecordEncoder(
     }
 
     /**
-     * Runs one screenrecord session.
-     * @return true if the session ended cleanly (stream EOF), false on error.
+     * Проводит одну сессию screenrecord.
+     * @return true, если сессия закончилась штатно (EOF потока), false при ошибке.
      */
     private fun runSession(): Boolean {
         var shell: AdbShell? = null
@@ -144,7 +145,7 @@ class ScreenrecordEncoder(
         val bytesReceived = java.util.concurrent.atomic.AtomicLong(0L)
 
         try {
-            // Balanced bitrate: fewer compression artifacts than 500k, still lightweight enough.
+            // Компромиссный битрейт: артефактов меньше, чем на 500k, а нагрузка всё ещё небольшая.
             val cmd = "shell:screenrecord --output-format=h264 --size ${mCapW}x${mCapH}" +
                     " --bit-rate 1200000 -"
             Log.i(TAG, "ADB connecting (api=${Build.VERSION.SDK_INT}, port=$mAdbPort): $cmd")
@@ -152,7 +153,6 @@ class ScreenrecordEncoder(
             shell = openedShell
             Log.i(TAG, "ADB stream open")
 
-            // Configure H.264 decoder
             val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, mCapW, mCapH)
             fmt.setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
@@ -170,7 +170,7 @@ class ScreenrecordEncoder(
                 java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
             val finalDecoder = decoder
 
-            // ── Thread 2: codec input ──────────────────────────────────────
+            // ── Поток 2: вход кодека ───────────────────────────────────────
             codecInThread = Thread({
                 try {
                     while (mRunning) {
@@ -205,7 +205,7 @@ class ScreenrecordEncoder(
                 }
             }, "screenrecord-codec-in").also { it.isDaemon = true; it.start() }
 
-            // ── Thread 3: codec output ────────────────────────────────────
+            // ── Поток 3: выход кодека ──────────────────────────────────────
             codecOutThread = Thread({
                 val info = MediaCodec.BufferInfo()
                 try {
@@ -258,14 +258,14 @@ class ScreenrecordEncoder(
                 }
             }, "screenrecord-codec-out").also { it.isDaemon = true; it.start() }
 
-            // ── Thread 1 (this): read ADB stream into queue ───────────────
+            // ── Поток 1 (текущий): поток ADB → очередь ────────────────────
             val inputStream = openedShell.input
             val chunk = ByteArray(16384)
 
-            // Watchdog policy:
-            // - startup: if first frame never appears, restart
-            // - runtime: restart only on prolonged lack of input bytes
-            // Do NOT restart only on decode-gap; this causes false positives on some devices/scenes.
+            // Правила сторожа:
+            // - на старте: перезапуск, если первый кадр так и не появился
+            // - в работе: перезапуск только при долгом отсутствии входных байт
+            // Перезапускать по одной лишь паузе в декодировании нельзя: на части устройств и сцен это ложные срабатывания.
             Thread({
                 while (mRunning && !cleanExit) {
                     Thread.sleep(2000)
@@ -295,7 +295,7 @@ class ScreenrecordEncoder(
                 }
             }, "screenrecord-watchdog").also { it.isDaemon = true; it.start() }
 
-            // Log first few bytes to verify this is actually H264 (starts with 0x00 0x00 0x00 0x01)
+            // Логируем первые байты, чтобы убедиться, что это действительно H264 (начинается с 0x00 0x00 0x00 0x01)
             val firstRead = inputStream.read(chunk)
             if (firstRead > 0) {
                 val now = System.currentTimeMillis()
@@ -317,9 +317,9 @@ class ScreenrecordEncoder(
                     Log.w(TAG, "Codec thread failure detected, ending current session")
                     break
                 }
-                // Backpressure: wait until queue has room rather than flushing.
-                // Flushing breaks H264 stream alignment → artifacts.
-                // Blocking here causes ADB to back-pressure screenrecord naturally.
+                // Обратное давление: ждём места в очереди, а не сбрасываем её.
+                // Сброс ломает выравнивание потока H264 и даёт артефакты, а блокировка здесь
+                // естественным образом придерживает и сам screenrecord через ADB.
                 while (mRunning && mDataQueue.size >= 96) {
                     Thread.sleep(8)
                 }
@@ -361,10 +361,10 @@ class ScreenrecordEncoder(
         } finally {
             val wasRunning = mRunning
             mDataQueue.clear()
-            // Interrupt codec threads first
+            // Сначала прерываем потоки кодека
             codecInThread?.interrupt()
             codecOutThread?.interrupt()
-            // Wait for codec threads to notice the interruption / mRunning=false
+            // Ждём, пока потоки кодека заметят прерывание или mRunning=false
             // Всё, что ниже, — разбор уже останавливаемой сессии: любой ресурс мог быть
             // закрыт раньше нас (потоками кодека или упавшим ADB), и это не ошибка.
             try {
@@ -385,7 +385,7 @@ class ScreenrecordEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ADB transport: libadb (TLS + pairing) on Android 11+, dadb (RSA) on older
+    // Транспорт ADB: libadb (TLS и сопряжение) на Android 11+, dadb (RSA) на более старых
     // ─────────────────────────────────────────────────────────────────────────
 
     private interface AdbShell {
@@ -400,8 +400,8 @@ class ScreenrecordEncoder(
                 val m = AppAdbConnectionManager.getInstance(mContext)
                 mgr = m
                 if (!m.isConnected) {
-                    // autoConnect discovers the TLS connect port via mDNS — no manual port needed.
-                    // Throws AdbPairingRequiredException if the key was never paired.
+                    // autoConnect находит TLS-порт через mDNS — вручную порт указывать не нужно.
+                    // Бросает AdbPairingRequiredException, если ключ ещё не сопряжён.
                     val auto = try {
                         m.autoConnect(mContext, 8000)
                     } catch (e: AdbPairingRequiredException) {
@@ -410,7 +410,7 @@ class ScreenrecordEncoder(
                         Log.w(TAG, "autoConnect failed: ${e.message}")
                         false
                     }
-                    // Fallback to the manually entered port if discovery failed.
+                    // Если поиск не удался, берём порт, введённый вручную.
                     if (!auto && mAdbPort > 0) m.connect("127.0.0.1", mAdbPort)
                 }
                 val stream = m.openStream(cmd)
@@ -427,7 +427,7 @@ class ScreenrecordEncoder(
             } catch (e: AdbPairingRequiredException) {
                 throw e
             } catch (e: Throwable) {
-                // Includes NoClassDefFoundError etc. — wrap so the session handler treats it gracefully.
+                // Ловим в том числе NoClassDefFoundError: пусть обработчик сессии разберётся штатно.
                 try {
                     mgr?.disconnect()
                 } catch (_: Throwable) {
@@ -437,7 +437,7 @@ class ScreenrecordEncoder(
             }
         } else {
             val kp = AdbKeyHelper.getKeyPair(mContext)
-            // This branch only runs on Android <= 10, where the configured RSA port works.
+            // Эта ветка работает только на Android 10 и ниже, где настроенный RSA-порт ещё жив.
             val port = AdbPortResolver.resolveForDadb(mContext, mAdbPort)
             val d = Dadb.create("127.0.0.1", port, kp)
             val stream = d.open(cmd)
@@ -459,12 +459,12 @@ class ScreenrecordEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // YUV → RGB  (zero Bitmap allocations)
+    // YUV → RGB (без единой аллокации Bitmap)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Converts a YUV_420_888 Image to RGB and sends to Hyperion.
-     * Directly accesses YUV planes — no intermediate Bitmap created.
+     * Переводит Image в формате YUV_420_888 в RGB и отправляет в Hyperion.
+     * Читает плоскости YUV напрямую, без промежуточного Bitmap.
      */
     private fun processImageDirect(image: Image) {
         val w = image.width
@@ -486,13 +486,13 @@ class ScreenrecordEncoder(
         val uBuf = uPlane.buffer
         val vBuf = vPlane.buffer
 
-        // Plane layout parameters
+        // Параметры раскладки плоскостей
         val yRowStride = yPlane.rowStride
         val yPixStride = yPlane.pixelStride    // always 1
         val uvRowStride = uPlane.rowStride
         val uvPixStride = uPlane.pixelStride   // 1 for I420, 2 for NV12
 
-        // Subsample: captureQuality is the target width in pixels
+        // Прореживание: captureQuality задаёт целевую ширину в пикселях
         val targetW = mOptions.captureQuality.coerceIn(64, w)
         val step = max(1, w / targetW)
         val sw = (w / step).coerceAtLeast(1)
@@ -533,7 +533,7 @@ class ScreenrecordEncoder(
         yRowStride: Int, yPixStride: Int, uvRowStride: Int, uvPixStride: Int,
     ) {
         val rgbSize = sw * sh * 3
-        // Use local reference — safe even if stopInternal nulls mRgbBuffer concurrently
+        // Работаем через локальную ссылку — безопасно, даже если stopInternal обнулит mRgbBuffer параллельно
         val rgb: ByteArray
         val existing = mRgbBuffer
         rgb =
@@ -605,7 +605,7 @@ class ScreenrecordEncoder(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Stop
+    // Остановка
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun stopInternal(disconnect: Boolean) {

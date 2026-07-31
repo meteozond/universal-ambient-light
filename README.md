@@ -2,28 +2,26 @@
 
 # Universal Ambient Light
 
-**Universal application for creating ambient screen lighting on Android devices**
+Ambient screen lighting for Android. The app captures the screen (or films the TV with the
+device camera), extracts the edge colors and streams them to an LED controller. Runs on
+Android 8.0 and newer, on both phones and Android TV.
 
-Universal Ambient Light is a modern Android application that captures screen content in real-time and sends it to LED controllers to create an immersive ambient lighting experience. The application is fully compatible with Android 8.0+ and supports both mobile devices and Android TV.
+[Читать на русском](README_RU.md) · [Support the project](SUPPORT.md) ·
+[Third-party licenses](THIRD_PARTY_LICENSES.md)
 
-**🇷🇺 [Read in Russian / Читать на русском](README_RU.md)**
+## Features
 
-**❤️ Support the project:** if you'd like to support further development, please see [`SUPPORT.md`](SUPPORT.md).
-**📄 Third-party licenses:** see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+- **Three controller families**: Hyperion, WLED and Adalight.
+- **Phone and Android TV**: separate layouts for touchscreens and D-pad navigation.
+- **Camera capture**: films the TV with the device camera and corrects perspective by four
+  corners — for TVs where screen capture is unavailable.
+- **Network discovery**: scans the local network for LED servers.
+- **Tunable pipeline**: capture quality, frame rate, color smoothing and latency.
+- **Auto-start** on device boot and **auto-reconnect** after a connection drop.
+- **Average color mode**: sends one dominant color instead of a full strip, for weak devices.
+- **Quick Settings tile** for switching the light on and off.
 
-## ✨ Key Features
-
-- 🎨 **Universal Controller Support**: Compatible with Hyperion, WLED, and Adalight.
-- 📱 **Android TV & Mobile Optimized**: Dedicated interfaces for touchscreens and D-pad navigation.
-- 📷 **Camera Capture Mode**: Alternative capture method using device camera with perspective correction for TVs without screen capture support.
-- 🔄 **Auto-Discovery**: Automatically scans the local network for available LED servers.
-- ⚙️ **Flexible Configuration**: Adjustable capture quality, frame rate, color smoothing, and latency settings.
-- 🚀 **Auto-Start**: Automatically launches the service on device boot.
-- 🔌 **Auto-Reconnect**: Robust connection handling with automatic reconnection attempts.
-- 📊 **Average Color Mode**: Reduces CPU/Network load by analyzing and sending the dominant screen color.
-- 🎯 **Quick Access**: Quick Settings Tile for instant toggling.
-
-## 🎯 Supported Controllers
+## Supported Controllers
 
 ### Hyperion
 - Full Hyperion protocol support.
@@ -41,13 +39,13 @@ Universal Ambient Light is a modern Android application that captures screen con
 - Configurable Baud Rate.
 - USB OTG connection support.
 
-## 📋 Requirements
+## Requirements
 
 - Android 8.0 (API 26) or higher.
 - Screen Capture permission (MediaProjection).
 - Local network access (for Hyperion/WLED) or USB Host support (for Adalight).
 
-## 🚀 Installation
+## Installation
 
 ### From GitHub Releases
 The latest versions (**TV** and **Mobile**) can be downloaded from the [Releases Page](https://github.com/vasmarfas/universal-ambient-light/releases).
@@ -60,7 +58,7 @@ The latest versions (**TV** and **Mobile**) can be downloaded from the [Releases
 An experimental build with **external USB camera (UVC) support** is available for advanced setups — for devices where screen capture is limited or not optimal. This version uses userspace drivers and is distributed outside Google Play.  
 **Early access for supporters:** [Boosty — Experimental Build: External USB Camera Support](https://boosty.to/vasmarfas/posts/ba545975-558f-496f-bb3f-d181349f447c)
 
-## ⚙️ Configuration
+## Configuration
 
 ### 1. Connection
 1. Launch the app and open **Settings**.
@@ -180,7 +178,7 @@ A ready-to-use Arduino sketch compatible with the app is available in [`adalight
     - LED strip DATA → Arduino pin (default 6)
     - LED strip VCC → 5V Arduino (or external power supply for long strips)
     - LED strip GND → GND Arduino
-    - ⚠️ **Important:** For long strips (>10 leds), use an external 5V power supply!
+    - **Important:** For long strips (>10 leds), use an external 5V power supply!
 
 4. **Upload sketch:**
     - Connect Arduino to computer via USB
@@ -212,10 +210,10 @@ WS2812B GND  → GND Arduino
 - If colors are wrong: change `COLOR_ORDER` (try RGB, GRB, BRG)
 - If no data received: check Baud Rate (should be 115200), ensure USB OTG cable supports data transfer
 
-## 📱 Android TV Features
+## Android TV Features
 This application is fully optimized for Android TV, including support for the Leanback Launcher and D-pad navigation. For easier text entry (IP addresses), we recommend using the "Google TV" or "Android TV Remote" app on your phone.
 
-## ⚠️ Important Notes
+## Important Notes
 
 ### TCL TV Users
 On TCL devices, aggressive system battery optimization may kill background services.
@@ -257,9 +255,9 @@ Workarounds:
 **Note:** Camera mode requires proper calibration of corner positions for accurate color capture.
 
 
-## 📄 License
+## License
 See [LICENSE.txt](LICENSE.txt)
 
-## 🤝 Contributing
+## Contributing
 Contributions are welcome! Please feel free to submit Pull Requests or Report Issues.
 

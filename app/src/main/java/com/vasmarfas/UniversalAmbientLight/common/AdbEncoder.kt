@@ -38,7 +38,7 @@ class AdbEncoder(
     private val mBorderCropper = com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor()
     private var mPixelBuffer: IntArray? = null
 
-    // Start with raw RGBA (no PNG overhead). Fall back to PNG if parsing fails.
+    // Начинаем с сырого RGBA (без накладных расходов на PNG). Если разбор не идёт — откатываемся на PNG.
     private var mUseRawMode = true
     private var mFailCount = 0
 
@@ -117,11 +117,11 @@ class AdbEncoder(
         try {
             if (mDadb == null) {
                 val keyPair = AdbKeyHelper.getKeyPair(mContext)
-                // dadb can't use the Android 11+ TLS wireless-debugging port; resolve a
-                // dadb-usable plain port (flips adbd to tcpip:5555 over TLS when needed).
+                // dadb не умеет работать с TLS-портом беспроводной отладки Android 11+; подбираем
+                // обычный порт (при необходимости переводим adbd в tcpip:5555 через TLS).
                 val port = AdbPortResolver.resolveForDadb(mContext, mAdbPort)
                 Log.i(TAG, "Connecting to ADB local port $port (configured $mAdbPort)...")
-                // Dadb.create blocks until connected or throws
+                // Dadb.create блокируется до подключения либо бросает исключение
                 mDadb = Dadb.create("127.0.0.1", port, keyPair)
                 Log.i(TAG, "ADB connected to localhost:$port")
             }
@@ -138,7 +138,7 @@ class AdbEncoder(
         val dadb = mDadb ?: return
 
         try {
-            // Raw mode skips PNG encode on device + PNG decode here — much faster
+            // Сырой режим избавляет от кодирования PNG на устройстве и его разбора здесь — заметно быстрее
             val cmd = if (mUseRawMode) "shell:screencap" else "shell:screencap -p"
             val stream = dadb.open(cmd)
             val data = stream.source.readByteArray()
@@ -180,9 +180,9 @@ class AdbEncoder(
     }
 
     /**
-     * Parses raw screencap output (no -p flag).
-     * Format: [width:4][height:4][format:4][RGBA pixels...]
-     * Subsamples directly from the byte buffer to avoid allocating a full-resolution Bitmap.
+     * Разбирает сырой вывод screencap (без флага -p).
+     * Формат: [ширина:4][высота:4][формат:4][пиксели RGBA...]
+     * Прореживает прямо из буфера байт, чтобы не выделять Bitmap в полном разрешении.
      */
     private fun parseRawScreencap(data: ByteArray): Bitmap? {
         if (data.size < 12) return null
@@ -205,7 +205,7 @@ class AdbEncoder(
             val targetW = (w / sampleSize).coerceAtLeast(1)
             val targetH = (h / sampleSize).coerceAtLeast(1)
 
-            // Subsample directly from raw bytes — no intermediate full-res Bitmap
+            // Прореживаем прямо из сырых байт — промежуточный Bitmap не нужен
             val pixels = IntArray(targetW * targetH)
             var dst = 0
             for (y in 0 until targetH) {

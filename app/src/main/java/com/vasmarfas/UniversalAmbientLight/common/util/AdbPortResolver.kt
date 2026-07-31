@@ -7,15 +7,15 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * Resolves the ADB port for the dadb-based capture encoders (scrcpy / adb).
+ * Подбирает порт ADB для энкодеров, работающих через dadb (scrcpy и adb).
  *
- * dadb speaks only the legacy RSA ADB protocol. Android 11+ "Wireless debugging" exposes
- * a TLS-only connect port (which also rotates on every toggle/reboot), so dadb cannot use
- * it at all — the handshake fails. To work around this we reuse the TLS-capable
- * [AppAdbConnectionManager] (the same path the "Test connection" button uses) to flip adbd
- * into plain `tcpip` mode on a fixed port, which dadb can then use with its RSA key.
+ * dadb понимает только устаревший протокол ADB с RSA. «Отладка по Wi-Fi» в Android 11+
+ * выставляет порт только с TLS (и он ещё меняется при каждом переключении и перезагрузке),
+ * поэтому dadb им пользоваться не может — рукопожатие не проходит. Чтобы обойти это, берём
+ * умеющий TLS [AppAdbConnectionManager] (тот же путь, что и у кнопки «Проверить соединение»)
+ * и переводим adbd в обычный режим `tcpip` на фиксированном порту, который dadb уже осилит.
  *
- * Blocking (TLS connect + tcpip + TCP probes). Call from a worker thread, never the main thread.
+ * Блокирующий вызов (TLS-подключение, tcpip и проверки TCP). Вызывать из рабочего потока, не из главного.
  */
 object AdbPortResolver {
     private const val TAG = "AdbPortResolver"
@@ -25,22 +25,22 @@ object AdbPortResolver {
     private const val TCPIP_WAIT_STEP_MS = 250L
 
     /**
-     * @param savedPort the port configured in preferences
-     * @return a port that the dadb (legacy RSA) client can actually connect to
+     * @param savedPort порт из настроек
+     * @return порт, к которому dadb (устаревший RSA) действительно сможет подключиться
      */
     fun resolveForDadb(context: Context, savedPort: Int): Int {
-        // Android <= 10: the configured RSA port (usually 5555) works with dadb directly.
+        // Android 10 и ниже: настроенный RSA-порт (обычно 5555) работает с dadb напрямую.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return savedPort
         }
 
-        // Android 11+: dadb needs a plain (non-TLS) port.
+        // Android 11+: dadb нужен обычный порт, без TLS.
         if (isPortAlive(TCPIP_PORT)) {
-            // adbd is already in tcpip mode (e.g. previous run or `adb tcpip 5555`).
+            // adbd уже в режиме tcpip (после прошлого запуска или команды `adb tcpip 5555`).
             return TCPIP_PORT
         }
         if (switchAdbdToTcpip(context, TCPIP_PORT)) {
-            // adbd restarts and rebinds; wait for the plain port to come up.
+            // adbd перезапускается и переоткрывает порт; ждём, пока обычный порт поднимется.
             repeat(TCPIP_WAIT_TRIES) {
                 if (isPortAlive(TCPIP_PORT)) {
                     Log.i(TAG, "adbd now in tcpip mode on $TCPIP_PORT")
@@ -54,15 +54,15 @@ object AdbPortResolver {
             }
             Log.w(TAG, "tcpip:$TCPIP_PORT requested but the port did not come up")
         }
-        // Last resort: let dadb try the configured port (will likely fail on a TLS port).
+        // Последняя надежда: пусть dadb попробует настроенный порт (на TLS-порту, скорее всего, не выйдет).
         return savedPort
     }
 
     /**
-     * Opens a TLS connection (auto-discovering the wireless-debugging port via mDNS) and runs
-     * the `tcpip:<port>` service, which makes adbd restart listening on a plain RSA port.
+     * Открывает TLS-соединение (порт беспроводной отладки находит сам через mDNS) и вызывает
+     * сервис `tcpip:<порт>`, после чего adbd перезапускается и слушает обычный порт с RSA.
      *
-     * Requires the device to have been paired already (otherwise autoConnect throws).
+     * Требует, чтобы устройство было уже сопряжено, иначе autoConnect бросит исключение.
      */
     private fun switchAdbdToTcpip(context: Context, port: Int): Boolean {
         return try {
@@ -78,7 +78,7 @@ object AdbPortResolver {
             }
             Log.i(TAG, "Requesting adbd 'tcpip:$port' over TLS…")
             val stream = mgr.openStream("tcpip:$port")
-            // Drain the short ack so adbd processes the request; it then restarts (stream closes).
+            // Вычитываем короткое подтверждение, чтобы adbd обработал запрос; после этого он перезапускается и поток закрывается.
             // adbd перезапускается прямо во время этих вызовов, поэтому обрыв чтения и
             // закрытия здесь — ожидаемый исход, а не ошибка.
             try {

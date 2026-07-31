@@ -10,10 +10,11 @@ import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 class AmbilightApplication : Application() {
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(LocaleHelper.onAttach(base))
-        // NOTE: previously called HiddenApiBypass.addHiddenApiExemptions("L") here, but Google
-        // Play rejects the org.lsposed.hiddenapibypass SDK (it breaks on the new ART / Android 16).
-        // Removed. Features relying on blocklisted hidden APIs may degrade on newer Android;
-        // greylisted APIs and the non-ADB capture paths (MediaProjection/accessibility) are unaffected.
+        // Раньше здесь вызывался HiddenApiBypass.addHiddenApiExemptions("L"), но Google Play
+        // отклоняет SDK org.lsposed.hiddenapibypass (он ломается на новом ART и Android 16),
+        // поэтому вызов убран. Возможности, опирающиеся на скрытые API из чёрного списка,
+        // на новых Android могут работать хуже; серые API и способы захвата без ADB
+        // (MediaProjection, accessibility) это не затрагивает.
     }
 
     override fun onCreate() {
@@ -21,19 +22,19 @@ class AmbilightApplication : Application() {
         installFrameworkBugFilter()
         seedXmlDefaults()
         migratePreferences()
-        // Off the main thread: reads SharedPreferences (first-access disk I/O) and
-        // touches Firebase — doing it inline in onCreate adds to cold-start ANRs.
+        // Уводим с главного потока: здесь первое обращение к SharedPreferences (чтение с диска)
+        // и работа с Firebase — прямо в onCreate это добавляет ANR на холодном старте.
         Thread { AnalyticsHelper.initializeUserProperties(this) }
             .apply { name = "analytics-init"; isDaemon = true }
             .start()
     }
 
     /**
-     * `Preferences.getString(key, default)` ignores the xml `pref_default_*` resource
-     * — callers pass explicit Kotlin defaults, so any debug-only override placed in
-     * `pref_values.xml` would never be observed. Same story for `getBoolean`. This
-     * routine writes xml defaults into SharedPreferences on first run (idempotent —
-     * only fills missing keys), so resource overrides actually take effect.
+     * `Preferences.getString(key, default)` не смотрит на xml-ресурс `pref_default_*`:
+     * вызывающий код передаёт свои значения по умолчанию, поэтому отладочное
+     * переопределение в `pref_values.xml` никто бы не увидел. С `getBoolean` то же самое.
+     * Эта процедура при первом запуске переносит xml-умолчания в SharedPreferences
+     * (идемпотентно — заполняет только отсутствующие ключи), и переопределения начинают работать.
      */
     private fun seedXmlDefaults() {
         val prefs = Preferences(this)
@@ -55,14 +56,14 @@ class AmbilightApplication : Application() {
             }
         }
 
-        // Integer prefs whose callers pass hardcoded Kotlin defaults to getInt() and
-        // therefore never observe the xml resource default unless we seed them.
+        // Числовые настройки, для которых вызывающий код передаёт в getInt() свои константы
+        // и поэтому никогда не увидит xml-умолчание, если его не посеять.
         listOf(
             R.string.pref_key_port to R.integer.pref_default_port
         ).forEach { (keyRes, defRes) ->
             if (!prefs.contains(keyRes)) {
                 runCatching {
-                    // Numeric prefs are stored as strings (matches EditTextPreference behaviour).
+                    // Числа хранятся строками — так же ведёт себя EditTextPreference.
                     prefs.putString(keyRes, resources.getInteger(defRes).toString())
                 }
             }
@@ -70,9 +71,9 @@ class AmbilightApplication : Application() {
     }
 
     /**
-     * Swallows a handful of platform/OEM bugs that surface as uncaught exceptions
-     * on threads we don't control. Each predicate is tightly scoped so genuine app
-     * crashes still propagate to the previous handler (Crashlytics).
+     * Проглатывает несколько багов платформы и прошивок, которые всплывают необработанными
+     * исключениями в потоках, нам не принадлежащих. Каждое условие сужено до предела, чтобы
+     * настоящие падения приложения по-прежнему доходили до прежнего обработчика (Crashlytics).
      */
     private fun installFrameworkBugFilter() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -92,9 +93,9 @@ class AmbilightApplication : Application() {
     }
 
     /**
-     * Android-framework NPE emitted from MediaCodec's internal DisplayListener on
-     * display removal (NVIDIA SHIELD HDMI unplug, etc.). Listener outlives release()
-     * on affected firmware; no app frames in stack.
+     * NPE из фреймворка Android: внутренний DisplayListener у MediaCodec срабатывает при
+     * отключении дисплея (например, вынули HDMI на NVIDIA SHIELD). На затронутых прошивках
+     * слушатель переживает release(); кадров нашего приложения в стеке нет.
      */
     private fun isMediaCodecDisplayListenerNpe(t: Throwable): Boolean {
         if (t !is NullPointerException) return false
@@ -106,11 +107,11 @@ class AmbilightApplication : Application() {
     }
 
     /**
-     * AOSP race where the system reports an Activity's size configurations after its
-     * ActivityRecord is already gone, surfaced as
+     * Гонка в AOSP: система сообщает размеры конфигурации активити, когда её ActivityRecord
+     * уже удалён, и это всплывает как
      * `IllegalArgumentException: reportSizeConfigurations: ActivityRecord not found`.
-     * Triggered by short-lived trampoline activities (BootActivity); originates
-     * entirely in system_server, no app frame to blame.
+     * Провоцируется короткоживущими активити-трамплинами (BootActivity); целиком
+     * происходит внутри system_server, винить в нём наш код не в чем.
      */
     private fun isReportSizeConfigurationsBug(t: Throwable): Boolean {
         if (t !is IllegalArgumentException) return false
@@ -121,11 +122,11 @@ class AmbilightApplication : Application() {
     }
 
     /**
-     * `ForegroundServiceDidNotStartInTimeException` for our own capture service. On
-     * some OEM firmware (e.g. TCL) startForeground() is blocked, so the service
-     * intentionally keeps running without a foreground notification and the platform
-     * later force-throws this exception. Scoped to our package so a genuine
-     * "forgot to call startForeground" bug elsewhere still surfaces.
+     * `ForegroundServiceDidNotStartInTimeException` для нашего же сервиса захвата. На
+     * некоторых прошивках (например, TCL) startForeground() заблокирован, сервис осознанно
+     * продолжает работать без уведомления, и платформа позже принудительно бросает это
+     * исключение. Сужено до нашего пакета, чтобы настоящая ошибка «забыли вызвать
+     * startForeground» в другом месте всё-таки всплыла.
      */
     private fun isForegroundServiceTimeout(t: Throwable): Boolean {
         if (!t.javaClass.name.contains("ForegroundServiceDidNotStartInTimeException")) return false
@@ -134,9 +135,9 @@ class AmbilightApplication : Application() {
 
     private fun migratePreferences() {
         val prefs = Preferences(this)
-        // Migration: pref_key_lighting_was_active was added later.
-        // For users who had auto-boot enabled before this preference existed,
-        // assume lighting was active so boot-start keeps working after update.
+        // Миграция: ключ pref_key_lighting_was_active появился позже. Для тех, у кого
+        // автозапуск был включён до его появления, считаем подсветку активной, чтобы старт
+        // с загрузки продолжил работать после обновления.
         if (!prefs.contains(R.string.pref_key_lighting_was_active)) {
             if (prefs.getBoolean(R.string.pref_key_boot)) {
                 prefs.putBoolean(R.string.pref_key_lighting_was_active, true)

@@ -3,10 +3,9 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 import android.content.Context
 
 /**
- * Play Store stub. Accessibility-assisted auto-pairing relies on the AccessibilityService,
- * which this flavor does not ship. The auto-pair UI is hidden behind
- * BuildConfig.HAS_ACCESSIBILITY, so run() is never invoked here; it returns
- * NeedsAccessibility to stay safe if it ever were.
+ * Заглушка для Google Play. Автосопряжение опирается на службу доступности, которой в этом
+ * флейворе нет. Интерфейс автосопряжения скрыт за BuildConfig.HAS_ACCESSIBILITY, поэтому
+ * run() здесь никогда не вызывается; на всякий случай он возвращает NeedsAccessibility.
  */
 @Suppress("UNUSED_PARAMETER")
 object AdbAutoPair {

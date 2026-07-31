@@ -18,16 +18,16 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 /**
- * Shell-based screen capture encoder using the `screencap` system command.
+ * Захват экрана системной командой `screencap` через shell.
  *
- * This is a fallback for devices where MediaProjection is blocked at the firmware level
- * (e.g. Yandex TV with YaOS). The `screencap` binary is available on all Android devices
- * and does not require MediaProjection permission.
+ * Запасной путь для устройств, где MediaProjection заблокирован на уровне прошивки
+ * (например, телевизоры Яндекса на YaOS). Бинарник `screencap` есть на всех Android и
+ * разрешения MediaProjection не требует.
  *
- * Limitations compared to ScreenEncoder:
- * - Lower frame rate (~5–7 fps typical)
- * - Higher CPU overhead per frame (PNG decode via BitmapFactory)
- * - No VirtualDisplay, so capture quality is bounded by inSampleSize steps
+ * Ограничения по сравнению со ScreenEncoder:
+ * - ниже частота кадров (обычно 5–7 в секунду)
+ * - выше нагрузка на процессор (на каждый кадр — декодирование PNG через BitmapFactory)
+ * - нет VirtualDisplay, поэтому качество ограничено шагами inSampleSize
  */
 class ScreencapEncoder(
     private val mContext: Context,
@@ -46,7 +46,7 @@ class ScreencapEncoder(
     private var mThread: HandlerThread? = null
     private var mHandler: Handler? = null
 
-    // Screencap is slow; don't try faster than 10 fps regardless of user setting
+    // screencap медленный: быстрее 10 кадров в секунду не пытаемся, что бы ни стояло в настройках
     private val mFrameIntervalMs: Long = max(100L, 1000L / mOptions.frameRate)
 
     private var mRgbBuffer: ByteArray? = null
@@ -115,7 +115,7 @@ class ScreencapEncoder(
 
     @Suppress("UNUSED_PARAMETER")
     override fun setOrientation(orientation: Int) {
-        // screencap captures whatever is currently on screen including rotation — no-op
+        // screencap снимает то, что сейчас на экране, вместе с поворотом — делать нечего
     }
 
     private fun startCapture() {
@@ -131,8 +131,8 @@ class ScreencapEncoder(
     }
 
     private fun cleanupStaleCaptureFiles() {
-        // File-mode fallback writes cap_*.png to externalCacheDir. If the previous
-        // session crashed mid-capture these accumulate and eventually fill the volume.
+        // В файловом режиме кадры пишутся в externalCacheDir как cap_*.png. Если прошлая
+        // сессия упала посреди захвата, они копятся и рано или поздно забьют раздел.
         try {
             val dir = mContext.externalCacheDir ?: mContext.cacheDir ?: return
             dir.listFiles { f -> f.name.startsWith("cap_") && f.name.endsWith(".png") }
@@ -148,11 +148,10 @@ class ScreencapEncoder(
             var bitmap: Bitmap? = null
 
             if (mUseFileMode) {
-                // File-based capture (fallback for SELinux blocked stdout)
+                // Захват через файл (запасной путь, когда SELinux блокирует stdout)
                 val cacheDir = mContext.externalCacheDir ?: mContext.cacheDir
                 val file = File(cacheDir, "cap_${System.currentTimeMillis()}.png")
 
-                // "screencap -p /path/to/file"
                 val cmd = if (mUseRoot) {
                     arrayOf("su", "-c", "screencap -p ${file.absolutePath}")
                 } else {
@@ -184,7 +183,7 @@ class ScreencapEncoder(
                     mFailCount++
                 }
             } else {
-                // Stdout capture
+                // Захват через stdout
                 val baseCmd = if (mUseRoot) "su -c screencap" else "screencap"
                 val cmd = if (mUseRawScreencap) baseCmd else "$baseCmd -p"
 
@@ -217,7 +216,7 @@ class ScreencapEncoder(
                     bitmap = BitmapFactory.decodeByteArray(data, 0, data.size, opts)
 
                     if (bitmap == null) {
-                        // Check for RAW data fallback
+                        // Проверяем, не пришли ли сырые данные вместо PNG
                         if (data.size > 12) {
                             val bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
                             val w = bb.int
@@ -259,7 +258,7 @@ class ScreencapEncoder(
 
                         if (bitmap == null) {
                             mFailCount++
-                            // Log unexpected format
+                            // Неожиданный формат — пишем в лог
                             val headerHex = data.take(16).joinToString(" ") { "%02X".format(it) }
                             Log.e(
                                 TAG,
@@ -279,7 +278,7 @@ class ScreencapEncoder(
                 processBitmap(bitmap)
                 bitmap.recycle()
             } else {
-                // Adaptive fallback strategy
+                // Стратегия последовательного перебора запасных режимов
                 if (mFailCount > 3) {
                     if (!mUseRawScreencap && !mUseFileMode) {
                         mUseRawScreencap = true
@@ -290,7 +289,7 @@ class ScreencapEncoder(
                         Log.w(TAG, "Switching to FILE mode")
                         mFailCount = 0
                     } else if (mUseFileMode && mFailCount > 8) {
-                        // All 3 modes exhausted — screencap is completely blocked on this device
+                        // Все три режима исчерпаны — screencap на этом устройстве полностью закрыт
                         Log.e(
                             TAG,
                             "All screencap modes failed (root=$mUseRoot). Device likely blocks screencap via SELinux."
@@ -315,8 +314,8 @@ class ScreencapEncoder(
     }
 
     /**
-     * Computes the largest power-of-2 sample size such that the decoded width
-     * is still at least [AppOptions.captureQuality] pixels wide.
+     * Подбирает наибольшую степень двойки для inSampleSize, при которой ширина после
+     * декодирования всё ещё не меньше [AppOptions.captureQuality] пикселей.
      */
     private fun computeSampleSize(): Int {
         val targetWidth = mOptions.captureQuality.coerceIn(64, 512)
@@ -430,8 +429,8 @@ class ScreencapEncoder(
         private const val CAPTURE_TIMEOUT_MS = 2000L
 
         /**
-         * Quick probe: check whether the screencap binary is accessible from this process.
-         * Run in a background thread before presenting the option to the user.
+         * Быстрая проверка, доступен ли бинарник screencap из нашего процесса.
+         * Запускать в фоновом потоке до того, как показывать пользователю этот вариант.
          */
         fun isAvailable(): Boolean {
             return try {

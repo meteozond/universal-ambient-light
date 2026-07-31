@@ -24,7 +24,7 @@ class AccessibilityEncoder(
     private var mThread: HandlerThread? = null
     private var mHandler: Handler? = null
 
-    // Accessibility screenshots are heavy, limit fps
+    // Скриншоты через доступность тяжёлые, поэтому ограничиваем частоту кадров
     private val mFrameIntervalMs: Long = max(200L, 1000L / mOptions.frameRate)
 
     private var mRgbBuffer: ByteArray? = null
@@ -115,22 +115,20 @@ class AccessibilityEncoder(
     }
 
     private fun sendPixelData(bitmap: Bitmap) {
-        // Scale down if needed based on captureQuality
+        // При необходимости уменьшаем по captureQuality
         var bmp = bitmap
         val w = bmp.width
         val h = bmp.height
 
-        // Simple downscale logic if bitmap is too huge compared to setting
-        // Note: Accessibility screenshots are usually full res.
+        // Скриншоты доступности приходят в полном разрешении, поэтому уменьшаем их простым
+        // масштабированием, если картинка заметно крупнее выбранного качества.
         val targetDim = mOptions.captureQuality.coerceAtLeast(64)
         if (w > targetDim && h > targetDim) {
             val scale = targetDim.toFloat() / max(w, h).toFloat()
             val newW = (w * scale).toInt()
             val newH = (h * scale).toInt()
             val scaled = Bitmap.createScaledBitmap(bmp, newW, newH, true)
-            // We don't recycle input bitmap here because it comes from callback which might reuse/recycle it (but we got a copy so it is fine to recycle our input)
-            // Actually input is "copy" from Service, so we own it.
-            // Wait, processBitmap receives a bitmap. If we scale it, we should use the scaled one.
+            // Входной bitmap здесь наш: служба отдаёт копию, поэтому освобождать его можно.
             bmp = scaled
         }
 

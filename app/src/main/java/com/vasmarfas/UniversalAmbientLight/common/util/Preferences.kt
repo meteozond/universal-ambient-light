@@ -8,8 +8,8 @@ import androidx.core.content.edit
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Wrapper around SharedPreferences with defaults centralised in resources.
- * Numeric prefs are stored as Strings to play nicely with EditTextPreference.
+ * Обёртка над SharedPreferences: значения по умолчанию собраны в ресурсах.
+ * Числа хранятся строками — так их понимает EditTextPreference.
  */
 class Preferences(context: Context) {
 
@@ -22,7 +22,7 @@ class Preferences(context: Context) {
         return try {
             preferences.getString(key(keyResourceId), default)
         } catch (_: ClassCastException) {
-            // Value at this key was stored under a different type (legacy install).
+            // По этому ключу лежит значение другого типа (наследие старой установки).
             default
         }
     }
@@ -45,7 +45,7 @@ class Preferences(context: Context) {
         val raw = try {
             preferences.getString(key(keyResourceId), null)?.trim()
         } catch (_: ClassCastException) {
-            // Value was stored directly as Int (e.g. via putInt on raw SharedPreferences elsewhere).
+            // Значение записали прямо как Int (например, putInt мимо этой обёртки).
             return try {
                 preferences.getInt(key(keyResourceId), default)
             } catch (_: ClassCastException) {

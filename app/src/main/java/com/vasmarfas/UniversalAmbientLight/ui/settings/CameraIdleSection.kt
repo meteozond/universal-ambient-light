@@ -16,8 +16,8 @@ import com.vasmarfas.UniversalAmbientLight.R
 @Composable
 internal fun ColumnScope.CameraIdleSection(prefs: Preferences, state: SettingsScreenState) {
     val context = LocalContext.current
-    // Camera auto-sleep (issue #38). Camera-only: the screen sources already get a
-    // standby signal from ACTION_SCREEN_OFF.
+    // Автосон камеры (issue #38). Только для камеры: экранные источники получают сигнал
+    // о простое из ACTION_SCREEN_OFF.
     if (state.captureSource == "camera") {
         SettingsGroup(title = stringResource(R.string.pref_group_camera_idle)) {
             val secondsUnit = stringResource(R.string.unit_seconds)

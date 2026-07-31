@@ -19,22 +19,22 @@ abstract class ScreenEncoderBase(
     options: AppOptions,
 ) : CaptureBackend {
 
-    // Configuration (immutable after construction)
+    // Настройки, неизменные после создания
     protected val mFrameRate: Int = options.frameRate
     protected val mAvgColor: Boolean = options.useAverageColor
     private val mInitOrientation: Int
     private val mWidthScaled: Int
     private val mHeightScaled: Int
 
-    // Store real screen dimensions
+    // Настоящие размеры экрана
     private val mScreenWidth: Int = width
     private val mScreenHeight: Int = height
 
-    // Components
+    // Компоненты
     protected val mHandler: Handler
     private val mHandlerThread: HandlerThread
 
-    // Mutable state
+    // Изменяемое состояние
     @Volatile
     protected var mCurrentOrientation: Int = 0
 
@@ -44,17 +44,15 @@ abstract class ScreenEncoderBase(
     private val mClearing = AtomicBoolean(false)
 
     init {
-        // Determine orientation
         mInitOrientation =
             if (width > height) Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
         mCurrentOrientation = mInitOrientation
 
-        // Calculate scaled dimensions
         val divisor = options.findDivisor(width, height)
         mWidthScaled = width / divisor
         mHeightScaled = height / divisor
 
-        // Handler thread for callbacks
+        // Отдельный поток с Handler под обратные вызовы
         val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_DISPLAY)
         thread.start()
         mHandlerThread = thread
@@ -114,7 +112,7 @@ abstract class ScreenEncoderBase(
         return if (mInitOrientation != mCurrentOrientation) mWidthScaled else mHeightScaled
     }
 
-    // Get real screen dimensions (not scaled down by divisor)
+    // Настоящие размеры экрана, без уменьшения делителем
     protected fun getScreenWidth(): Int {
         return if (mInitOrientation != mCurrentOrientation) mScreenHeight else mScreenWidth
     }

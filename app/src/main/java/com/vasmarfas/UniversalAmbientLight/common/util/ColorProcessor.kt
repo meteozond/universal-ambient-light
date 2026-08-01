@@ -1,6 +1,5 @@
 package com.vasmarfas.UniversalAmbientLight.common.util
 
-import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor.processColor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow

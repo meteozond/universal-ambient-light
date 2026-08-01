@@ -115,6 +115,12 @@ android {
             path = file("src/main/jni/CMakeLists.txt")
         }
     }
+
+    testOptions {
+        // Заглушки android.jar возвращают значения по умолчанию вместо исключения:
+        // тестируемые классы зовут android.util.Log, и без этого JVM-тесты падали бы на нём.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -166,6 +172,8 @@ dependencies {
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.perf)
     implementation(libs.firebase.config)
+
+    testImplementation(libs.junit)
 }
 
 // Generate a dummy google-services.json for local builds when the real one is missing.

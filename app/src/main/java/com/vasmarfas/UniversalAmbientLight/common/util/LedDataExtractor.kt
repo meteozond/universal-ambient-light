@@ -2,13 +2,14 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 
 import android.content.Context
 import android.util.Log
-import com.vasmarfas.UniversalAmbientLight.R
 import com.vasmarfas.UniversalAmbientLight.common.network.ColorRgb
-import kotlin.math.max
 
 object LedDataExtractor {
     private const val TAG = "LedDataExtractor"
     private val logsEnabled = false
+
+    /** Лента среднего размера: столько светодиодов берём, если настройки прочитать не вышло. */
+    private const val DEFAULT_LED_COUNT = 60
 
     /**
      * Достаёт цвета светодиодов, переиспользуя переданный буфер, чтобы не нагружать сборщик мусора.
@@ -22,78 +23,8 @@ object LedDataExtractor {
         height: Int,
         reuseBuffer: Array<ColorRgb>?,
     ): Array<ColorRgb> {
-        var xLed = 0
-        var yLed = 0
-        var topLed = 0
-        var rightLed = 0
-        var bottomLed = 0
-        var leftLed = 0
-        var startCorner = "bottom_left"
-        var direction = "clockwise"
-        var sideTop = "enabled"
-        var sideRight = "enabled"
-        var sideBottom = "enabled"
-        var sideLeft = "enabled"
-        var bottomGap = 0
-        var captureMarginTop = 0
-        var captureMarginRight = 0
-        var captureMarginBottom = 0
-        var captureMarginLeft = 0
-        var ledOffset = 0
-        var scanDepth = 1
-
-        try {
-            val prefs = Preferences(context)
-            xLed = prefs.getInt(R.string.pref_key_x_led)
-            yLed = prefs.getInt(R.string.pref_key_y_led)
-            topLed = prefs.getInt(R.string.pref_key_led_count_top, xLed)
-            rightLed = prefs.getInt(R.string.pref_key_led_count_right, yLed)
-            bottomLed = prefs.getInt(R.string.pref_key_led_count_bottom, xLed)
-            leftLed = prefs.getInt(R.string.pref_key_led_count_left, yLed)
-            startCorner =
-                prefs.getString(R.string.pref_key_led_start_corner, "bottom_left") ?: "bottom_left"
-            direction = prefs.getString(R.string.pref_key_led_direction, "clockwise") ?: "clockwise"
-            sideTop = prefs.getString(R.string.pref_key_led_side_top, "enabled") ?: "enabled"
-            sideRight = prefs.getString(R.string.pref_key_led_side_right, "enabled") ?: "enabled"
-            sideBottom = prefs.getString(R.string.pref_key_led_side_bottom, "enabled") ?: "enabled"
-            sideLeft = prefs.getString(R.string.pref_key_led_side_left, "enabled") ?: "enabled"
-            bottomGap = prefs.getInt(R.string.pref_key_bottom_gap, 0)
-            val legacyMargin = prefs.getInt(R.string.pref_key_capture_margin, -1)
-            if (legacyMargin >= 0) {
-                captureMarginTop = legacyMargin
-                captureMarginRight = legacyMargin
-                captureMarginBottom = legacyMargin
-                captureMarginLeft = legacyMargin
-            } else {
-                val marginH = prefs.getInt(R.string.pref_key_capture_margin_horizontal, -1)
-                val marginV = prefs.getInt(R.string.pref_key_capture_margin_vertical, -1)
-                if (marginH >= 0 || marginV >= 0) {
-                    val h = if (marginH >= 0) marginH else 0
-                    val v = if (marginV >= 0) marginV else 0
-                    captureMarginTop = v
-                    captureMarginRight = h
-                    captureMarginBottom = v
-                    captureMarginLeft = h
-                } else {
-                    captureMarginTop = prefs.getInt(R.string.pref_key_capture_margin_top, 0)
-                    captureMarginRight = prefs.getInt(R.string.pref_key_capture_margin_right, 0)
-                    captureMarginBottom = prefs.getInt(R.string.pref_key_capture_margin_bottom, 0)
-                    captureMarginLeft = prefs.getInt(R.string.pref_key_capture_margin_left, 0)
-                }
-            }
-            ledOffset = prefs.getInt(R.string.pref_key_led_offset, 0)
-            scanDepth = prefs.getInt(R.string.pref_key_scan_depth, 1).coerceIn(1, 50)
-        } catch (e: Exception) {
-            if (logsEnabled) Log.w(TAG, "Failed to get LED settings from preferences", e)
-        }
-
         return extractPerimeterPixels(
-            screenData, width, height,
-            topLed, rightLed, bottomLed, leftLed,
-            startCorner, direction,
-            sideTop, sideRight, sideBottom, sideLeft, bottomGap,
-            captureMarginTop, captureMarginRight, captureMarginBottom, captureMarginLeft,
-            ledOffset, scanDepth, reuseBuffer
+            screenData, width, height, readLayout(context), reuseBuffer
         )
     }
 
@@ -108,23 +39,27 @@ object LedDataExtractor {
 
     fun getLedCount(context: Context): Int {
         return try {
-            val prefs = Preferences(context)
-            val xLed = prefs.getInt(R.string.pref_key_x_led)
-            val yLed = prefs.getInt(R.string.pref_key_y_led)
-
-            val topLed = prefs.getInt(R.string.pref_key_led_count_top, xLed)
-            val rightLed = prefs.getInt(R.string.pref_key_led_count_right, yLed)
-            val bottomLed = prefs.getInt(R.string.pref_key_led_count_bottom, xLed)
-            val leftLed = prefs.getInt(R.string.pref_key_led_count_left, yLed)
-
-            var totalLEDs = topLed + rightLed + bottomLed + leftLed
-            if (totalLEDs <= 0) {
-                totalLEDs = 2 * (xLed + yLed)
-            }
-            max(totalLEDs, 1)
+            LedLayout.from(Preferences(context)).ledCount()
         } catch (e: Exception) {
+            // Та же причина, что и в readLayout: без числа светодиодов клиент не соберёт
+            // пакет, поэтому берём типовую ленту вместо падения
             if (logsEnabled) Log.w(TAG, "Failed to get LED count, using default", e)
-            60
+            DEFAULT_LED_COUNT
+        }
+    }
+
+    /**
+     * Настройки читаются на каждом кадре: пользователь правит раскладку прямо во время
+     * работы ленты и должен видеть результат сразу.
+     */
+    private fun readLayout(context: Context): LedLayout {
+        return try {
+            LedLayout.from(Preferences(context))
+        } catch (e: Exception) {
+            // Защитный периметр: разбор кадра идёт в потоке отправки, и падение на чтении
+            // настроек оборвало бы его целиком — лучше отработать на значениях по умолчанию
+            if (logsEnabled) Log.w(TAG, "Failed to get LED settings from preferences", e)
+            LedLayout()
         }
     }
 
@@ -132,40 +67,25 @@ object LedDataExtractor {
      * Берёт пиксели по периметру двумерной картинки экрана.
      * Порядок обхода зависит от стартового угла и направления.
      */
-    private fun extractPerimeterPixels(
+    internal fun extractPerimeterPixels(
         screenData: ByteArray,
         width: Int,
         height: Int,
-        topLed: Int,
-        rightLed: Int,
-        bottomLed: Int,
-        leftLed: Int,
-        startCorner: String,
-        direction: String,
-        sideTop: String,
-        sideRight: String,
-        sideBottom: String,
-        sideLeft: String,
-        bottomGap: Int,
-        captureMarginTop: Int,
-        captureMarginRight: Int,
-        captureMarginBottom: Int,
-        captureMarginLeft: Int,
-        ledOffset: Int,
-        scanDepth: Int,
+        layout: LedLayout,
         reuseBuffer: Array<ColorRgb>?,
     ): Array<ColorRgb> {
-        val topCount = topLed.coerceAtLeast(0)
-        val rightCount = rightLed.coerceAtLeast(0)
-        val bottomCount = bottomLed.coerceAtLeast(0)
-        val leftCount = leftLed.coerceAtLeast(0)
+        val topCount = layout.topLed.coerceAtLeast(0)
+        val rightCount = layout.rightLed.coerceAtLeast(0)
+        val bottomCount = layout.bottomLed.coerceAtLeast(0)
+        val leftCount = layout.leftLed.coerceAtLeast(0)
+        val bottomGap = layout.bottomGap
 
         // Считаем общее число светодиодов с учётом того, какие стороны включены
         var totalLEDs = 0
-        if (sideTop != "not_installed") totalLEDs += topCount
-        if (sideRight != "not_installed") totalLEDs += rightCount
-        if (sideBottom != "not_installed") totalLEDs += bottomCount
-        if (sideLeft != "not_installed") totalLEDs += leftCount
+        if (layout.sideTop != "not_installed") totalLEDs += topCount
+        if (layout.sideRight != "not_installed") totalLEDs += rightCount
+        if (layout.sideBottom != "not_installed") totalLEDs += bottomCount
+        if (layout.sideLeft != "not_installed") totalLEDs += leftCount
         if (totalLEDs == 0) return emptyArray()
 
         val expectedSize = width * height * 3
@@ -173,7 +93,9 @@ object LedDataExtractor {
             TAG,
             "extractPerimeterPixels: width=$width, height=$height, top=$topCount, right=$rightCount, bottom=$bottomCount, left=$leftCount, totalLEDs=$totalLEDs"
         )
-        if (logsEnabled) Log.d(TAG, "startCorner=$startCorner, direction=$direction")
+        if (logsEnabled) {
+            Log.d(TAG, "startCorner=${layout.startCorner}, direction=${layout.direction}")
+        }
         if (logsEnabled) Log.d(TAG, "screenData.size=${screenData.size}, expected=$expectedSize")
 
         if (screenData.size < expectedSize) {
@@ -193,10 +115,10 @@ object LedDataExtractor {
         var ledIdx = 0
 
         // Область захвата со своим отступом для каждой стороны
-        val marginTop = captureMarginTop.coerceIn(0, 40)
-        val marginRight = captureMarginRight.coerceIn(0, 40)
-        val marginBottom = captureMarginBottom.coerceIn(0, 40)
-        val marginLeft = captureMarginLeft.coerceIn(0, 40)
+        val marginTop = layout.captureMarginTop.coerceIn(0, 40)
+        val marginRight = layout.captureMarginRight.coerceIn(0, 40)
+        val marginBottom = layout.captureMarginBottom.coerceIn(0, 40)
+        val marginLeft = layout.captureMarginLeft.coerceIn(0, 40)
 
         val marginTopPx = height * marginTop / 100f
         val marginRightPx = width * marginRight / 100f
@@ -212,8 +134,8 @@ object LedDataExtractor {
         val captureHeight = (captureBottom - captureTop).coerceAtLeast(1f)
 
         // Глубина сканирования в пикселях
-        val scanDepthV = (captureHeight * scanDepth / 100f).toInt().coerceAtLeast(1)
-        val scanDepthH = (captureWidth * scanDepth / 100f).toInt().coerceAtLeast(1)
+        val scanDepthV = (captureHeight * layout.scanDepth / 100f).toInt().coerceAtLeast(1)
+        val scanDepthH = (captureWidth * layout.scanDepth / 100f).toInt().coerceAtLeast(1)
 
         fun sideStep(length: Float, count: Int): Float {
             return if (count <= 0) 0f else length / count
@@ -229,14 +151,14 @@ object LedDataExtractor {
         val gapEnd = if (bottomGap > 0 && bottomCount > 0) gapStart + bottomGap else -1
 
         // Порядок обхода сторон по стартовому углу и направлению
-        val edges = getEdgeOrder(startCorner, direction)
+        val edges = getEdgeOrder(layout.startCorner, layout.direction)
 
         for (edge in edges) {
             val sideMode = when {
-                edge.startsWith("top_") -> sideTop
-                edge.startsWith("right_") -> sideRight
-                edge.startsWith("bottom_") -> sideBottom
-                edge.startsWith("left_") -> sideLeft
+                edge.startsWith("top_") -> layout.sideTop
+                edge.startsWith("right_") -> layout.sideRight
+                edge.startsWith("bottom_") -> layout.sideBottom
+                edge.startsWith("left_") -> layout.sideLeft
                 else -> "enabled"
             }
 
@@ -468,7 +390,7 @@ object LedDataExtractor {
         }
 
         // Сдвиг светодиодов по периметру
-        val offset = (ledOffset % totalLEDs + totalLEDs) % totalLEDs
+        val offset = (layout.ledOffset % totalLEDs + totalLEDs) % totalLEDs
         if (offset == 0) return ledData
 
         val rotated = Array(totalLEDs) { ColorRgb(0, 0, 0) }

@@ -12,6 +12,8 @@ import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -239,8 +241,20 @@ class CameraEncoder(
             }
         }
 
+        // Замена устаревшего setTargetResolution. Правило CLOSEST_HIGHER_THEN_LOWER —
+        // то же, что подразумевал старый вызов; соотношение сторон CameraX по умолчанию
+        // предпочитает 4:3, а 640x480 как раз 4:3, так что выбор камеры не меняется.
+        val resolutionSelector = ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(CAMERA_WIDTH, CAMERA_HEIGHT),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                )
+            )
+            .build()
+
         val imageAnalysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(CAMERA_WIDTH, CAMERA_HEIGHT))
+            .setResolutionSelector(resolutionSelector)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()

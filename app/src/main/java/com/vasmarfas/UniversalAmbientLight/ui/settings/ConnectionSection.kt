@@ -230,6 +230,23 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                     )
                 }
             )
+            val brightnessMaxSummary = stringResource(R.string.pref_summary_wled_brightness_max)
+            EditTextPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_wled_brightness,
+                title = stringResource(R.string.pref_title_wled_brightness),
+                // 255 — не «максимальная яркость», а «не трогать цвета вовсе», это стоит
+                // проговорить: иначе значение по умолчанию выглядит как обычный максимум
+                summaryProvider = { value -> if (value == "255") brightnessMaxSummary else value },
+                keyboardType = KeyboardType.Number,
+                onValueChange = { newBrightness ->
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "wled_brightness",
+                        newBrightness
+                    )
+                }
+            )
         }
     }
 }

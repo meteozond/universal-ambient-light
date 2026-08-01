@@ -1,8 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.gms.google-services")
+    alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.firebase.perf)
 }
@@ -34,12 +33,12 @@ val appVersionCode = getVersionCodeFrom(appVersionName, buildNumber)
 
 android {
     namespace = "com.vasmarfas.UniversalAmbientLight"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.vasmarfas.UniversalAmbientLight"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionName = appVersionName
         versionCode = appVersionCode
 

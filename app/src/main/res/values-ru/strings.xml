@@ -349,7 +349,9 @@
     <item>ddp</item>
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
-  
+  <string name="pref_title_wled_brightness">Яркость WLED</string>
+  <string name="pref_summary_wled_brightness_max">255 — цвета уходят без изменений</string>
+
   <!-- Adalight advanced settings -->
   <string name="pref_title_adalight_protocol">Протокол Adalight</string>
   <string-array name="pref_list_adalight_protocol">

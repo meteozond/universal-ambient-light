@@ -347,7 +347,9 @@
     <item>ddp</item>
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
-  
+  <string name="pref_title_wled_brightness">WLED brightness</string>
+  <string name="pref_summary_wled_brightness_max">255 — colors are sent unchanged</string>
+
   <!-- Adalight advanced settings -->
   <string name="pref_title_adalight_protocol">Adalight Protocol</string>
   <string-array name="pref_list_adalight_protocol">

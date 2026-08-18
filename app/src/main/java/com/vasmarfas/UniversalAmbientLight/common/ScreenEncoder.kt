@@ -161,8 +161,16 @@ class ScreenEncoder(
             "initCaptureDimensions: quality=$quality, screenWidth=$screenWidth, screenHeight=$screenHeight"
         )
 
-        // Пропорции считаем по настоящим размерам экрана
-        val ratio = screenWidth.toFloat() / screenHeight
+        // Пропорции считаем по настоящим размерам экрана. Часть прошивок (Mi Box на
+        // Android 9) в момент старта отдаёт нулевые метрики: ratio уходил в бесконечность,
+        // ширина — в Int.MAX_VALUE, и нативная аллокация ImageReader переполнялась в
+        // отрицательный размер (краш «allocation size negative»). Пока метрик нет,
+        // считаем экран 16:9.
+        val ratio = if (screenWidth > 0 && screenHeight > 0) {
+            screenWidth.toFloat() / screenHeight
+        } else {
+            16f / 9f
+        }
         Log.d(TAG, "initCaptureDimensions: ratio=$ratio")
 
         val (w, h) = if (quality <= 512) {
@@ -186,9 +194,10 @@ class ScreenEncoder(
             targetWidth to targetHeight
         }
 
-        // Размеры делаем чётными и не меньше разумного минимума
-        mCaptureWidth = max(32, w and 1.inv())
-        mCaptureHeight = max(32, h and 1.inv())
+        // Размеры делаем чётными и держим в разумных пределах: верхняя граница страхует
+        // от переполнения размера аллокации ImageReader на кривых метриках экрана
+        mCaptureWidth = max(32, min(w, MAX_CAPTURE_SIDE) and 1.inv())
+        mCaptureHeight = max(32, min(h, MAX_CAPTURE_SIDE) and 1.inv())
 
         Log.d(
             TAG,
@@ -226,15 +235,31 @@ class ScreenEncoder(
         }, mHandler)
 
         // createVirtualDisplay может бросить SecurityException, если токен MediaProjection истёк или отозван.
-        // Пробрасываем исключение дальше, чтобы restartEncoderFromSavedProjection сбросил сохранённые данные проекции.
-        mVirtualDisplay = mMediaProjection.createVirtualDisplay(
-            TAG,
-            mCaptureWidth, mCaptureHeight, mDensity,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
-            imageReader.surface,
-            mDisplayCallback,
-            mHandler
-        )
+        // Пробрасываем исключение дальше, чтобы restartEncoderFromSavedProjection сбросил сохранённые
+        // данные проекции, но сначала убираем уже созданное: объект не будет сконструирован, и кроме
+        // как здесь два HandlerThread и ImageReader остановить некому. Этот путь повторяется на каждом
+        // ACTION_SCREEN_ON с протухшим токеном — без уборки утечка копилась бы с каждой попыткой.
+        try {
+            mVirtualDisplay = mMediaProjection.createVirtualDisplay(
+                TAG,
+                mCaptureWidth, mCaptureHeight, mDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
+                imageReader.surface,
+                mDisplayCallback,
+                mHandler
+            )
+        } catch (e: SecurityException) {
+            try {
+                imageReader.close()
+            } catch (_: Exception) {
+            }
+            mImageReader = null
+            captureThread.quitSafely()
+            mCaptureThread = null
+            mCaptureHandler = null
+            stopHandlerThread()
+            throw e
+        }
 
         startCapture()
     }
@@ -248,6 +273,9 @@ class ScreenEncoder(
         mRunning = true
         setCapturing(true)
         mFrameCount = 0
+        // setOrientation и onResumed VirtualDisplay могут позвать нас наперегонки — без
+        // снятия старого поста в очереди оказались бы две самоперепощивающиеся цепочки
+        handler.removeCallbacks(mCaptureRunnable)
         handler.post(mCaptureRunnable)
     }
 
@@ -265,7 +293,13 @@ class ScreenEncoder(
         } catch (e: Exception) {
             if (DEBUG) Log.w(TAG, "Capture error", e)
         } finally {
-            img?.close()
+            // stopInternal с другого потока мог закрыть ImageReader между acquire и close —
+            // тогда close() бросает IllegalStateException, а необработанным он уронил бы
+            // весь поток захвата
+            try {
+                img?.close()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -455,36 +489,39 @@ class ScreenEncoder(
         }
     }
 
-    @Synchronized
     private fun stopInternal(disconnect: Boolean) {
-        if (DEBUG) Log.i(TAG, "Stopping (disconnect=$disconnect)")
-        mRunning = false
-        setCapturing(false)
+        synchronized(this) {
+            if (DEBUG) Log.i(TAG, "Stopping (disconnect=$disconnect)")
+            mRunning = false
+            setCapturing(false)
 
-        mCaptureHandler?.removeCallbacksAndMessages(null)
+            mCaptureHandler?.removeCallbacksAndMessages(null)
 
-        // Сначала освобождаем VirtualDisplay, чтобы в поверхность перестали писать новые кадры
-        mVirtualDisplay?.release()
-        mVirtualDisplay = null
+            // Сначала освобождаем VirtualDisplay, чтобы в поверхность перестали писать новые кадры
+            mVirtualDisplay?.release()
+            mVirtualDisplay = null
 
-        // ImageReader закрываем ДО остановки looper'а. ImageReader.close() трогает нативные
-        // буферы поверх Binder, и закрытие после исчезновения looper'а приводит к взаимоблокировке
-        // в FinalizerDaemon (BinderInternal$GcWatcher timed out): нативный финализатор не может
-        // взять нужную блокировку Binder.
-        mImageReader?.close()
-        mImageReader = null
+            // ImageReader закрываем ДО остановки looper'а. ImageReader.close() трогает нативные
+            // буферы поверх Binder, и закрытие после исчезновения looper'а приводит к взаимоблокировке
+            // в FinalizerDaemon (BinderInternal$GcWatcher timed out): нативный финализатор не может
+            // взять нужную блокировку Binder.
+            mImageReader?.close()
+            mImageReader = null
 
-        mCaptureThread?.quitSafely()
-        mCaptureThread = null
-        mCaptureHandler = null
+            mCaptureThread?.quitSafely()
+            mCaptureThread = null
+            mCaptureHandler = null
 
-        mRgbBuffer = null
-        mRowBuffer = null
-        mBorderX = 0
-        mBorderY = 0
-        mFrameCount = 0
+            mRgbBuffer = null
+            mRowBuffer = null
+            mBorderX = 0
+            mBorderY = 0
+            mFrameCount = 0
+        }
 
-        // quitSafely и join, чтобы поток точно остановился до сборки ресурсов
+        // join — уже без монитора: MediaProjection.onStop приходит на останавливаемом
+        // HandlerThread и входит в этот же stopInternal; join под монитором в такой
+        // встрече всегда выжидал бы полный таймаут, держа главный поток
         stopHandlerThread()
 
         // При системной остановке (сон) соединение держим, иначе WLED вернётся к своему эффекту
@@ -569,5 +606,6 @@ class ScreenEncoder(
         private const val BORDER_CHECK_FRAMES = 60
         private const val BYTES_PER_PIXEL_RGBA = 4
         private const val BYTES_PER_PIXEL_RGB = 3
+        private const val MAX_CAPTURE_SIDE = 4096
     }
 }

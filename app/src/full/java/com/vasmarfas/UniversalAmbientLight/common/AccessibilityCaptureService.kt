@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -148,9 +149,14 @@ class AccessibilityCaptureService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    fun takeScreenshot(callback: (Bitmap?) -> Unit) {
+    fun takeScreenshot(
+        executor: Executor = mainExecutor,
+        callback: (Bitmap?) -> Unit,
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            takeScreenshot(0, mainExecutor, object : TakeScreenshotCallback {
+            // Конвертация HardwareBuffer в читаемый bitmap — до десятков мегабайт копии на
+            // кадр; вызывающий передаёт executor своего потока, чтобы не грузить главный
+            takeScreenshot(0, executor, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
                     var copy: Bitmap? = null
                     try {

@@ -75,6 +75,11 @@ class ScrcpyEncoder(
 
     private val mFrameQueue = ArrayBlockingQueue<Frame>(64)
     private var mSupervisorThread: Thread? = null
+
+    // ADB-соединение текущей сессии: stopInternal закрывает его, чтобы выбить супервизор
+    // из блокирующего чтения, которое interrupt не прерывает.
+    @Volatile
+    private var mCurrentDadb: Dadb? = null
     private val mBorderCropper = com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor()
 
     val mCapW: Int
@@ -82,7 +87,13 @@ class ScrcpyEncoder(
 
     init {
         val w = 480
-        var h = (w * mScreenHeight.toFloat() / mScreenWidth.toFloat()).toInt()
+        // Часть прошивок на старте отдаёт нулевые метрики — деление уводило бы высоту в
+        // Int.MAX_VALUE; пока метрик нет, считаем экран 16:9
+        var h = if (mScreenWidth > 0 && mScreenHeight > 0) {
+            (w * mScreenHeight.toFloat() / mScreenWidth.toFloat()).toInt()
+        } else {
+            270
+        }
         if (h % 2 != 0) h++
         mCapW = w
         mCapH = h
@@ -211,6 +222,11 @@ class ScrcpyEncoder(
                 }
             } catch (_: InterruptedException) {
                 Log.i(TAG, "Supervisor interrupted, stopping")
+            } finally {
+                // После «giving up» статус обязан стать честным, иначе resumeRecording()
+                // навсегда останется no-op из-за mRunning=true.
+                mRunning = false
+                mCapturing = false
             }
         }, "scrcpy-supervisor").also { it.isDaemon = true; it.start() }
     }
@@ -242,15 +258,19 @@ class ScrcpyEncoder(
             val adbPort = AdbPortResolver.resolveForDadb(mContext, mAdbPort)
             Log.i(TAG, "ADB connecting on port $adbPort (configured $mAdbPort)…")
             dadb = Dadb.create("127.0.0.1", adbPort, kp)
+            mCurrentDadb = dadb
             Log.i(TAG, "ADB connected")
 
             // ── Заливаем сервер заново, чтобы не нарваться на битую копию ─
             Log.i(TAG, "Pushing scrcpy-server to device…")
             val tmp = File(mContext.cacheDir, ASSET_NAME)
-            mContext.assets.open(ASSET_NAME)
-                .use { src -> tmp.outputStream().use { src.copyTo(it) } }
-            dadb.push(tmp, REMOTE_PATH)
-            tmp.delete()
+            try {
+                mContext.assets.open(ASSET_NAME)
+                    .use { src -> tmp.outputStream().use { src.copyTo(it) } }
+                dadb.push(tmp, REMOTE_PATH)
+            } finally {
+                tmp.delete()
+            }
             Log.i(TAG, "Server pushed to $REMOTE_PATH")
 
             // ── Собираем команду запуска ──────────────────────────────────
@@ -585,6 +605,7 @@ class ScrcpyEncoder(
                 shellStream?.close()
             } catch (_: Exception) {
             }
+            mCurrentDadb = null
             try {
                 dadb?.close()
             } catch (_: Exception) {
@@ -627,10 +648,12 @@ class ScrcpyEncoder(
         yBuf: ByteBuffer, uBuf: ByteBuffer, vBuf: ByteBuffer,
         step: Int, sw: Int, sh: Int, yRS: Int, yPS: Int, uvRS: Int, uvPS: Int,
     ) {
+        // Размер сверяем точно: Hyperion сериализует весь массив, и буфер длиннее кадра
+        // ушёл бы на сервер с хвостом от прежнего разрешения.
         val rgbSize = sw * sh * 3
         val existing = mRgbBuffer
         val rgb =
-            if (existing != null && existing.size >= rgbSize) existing else ByteArray(rgbSize).also {
+            if (existing != null && existing.size == rgbSize) existing else ByteArray(rgbSize).also {
                 mRgbBuffer = it
             }
         var dst = 0
@@ -699,6 +722,13 @@ class ScrcpyEncoder(
     private fun stopInternal(disconnect: Boolean) {
         mRunning = false; mCapturing = false
         mFrameQueue.clear()
+        // Супервизор может сидеть в блокирующем чтении видеопотока (на статичной картинке
+        // scrcpy законно молчит), interrupt его не разбудит — закрываем ADB-соединение,
+        // и readFully возвращается с ошибкой.
+        try {
+            mCurrentDadb?.close()
+        } catch (_: Exception) {
+        }
         mSupervisorThread?.interrupt()
         mRgbBuffer = null
         if (disconnect) {

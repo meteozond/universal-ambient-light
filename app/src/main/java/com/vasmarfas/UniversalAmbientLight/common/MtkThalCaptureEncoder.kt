@@ -51,6 +51,8 @@ class MtkThalCaptureEncoder(
 
     private var mThread: HandlerThread? = null
     private var mHandler: Handler? = null
+
+    @Volatile
     private var mProcess: java.lang.Process? = null
 
     private var mCaptureWidth = 0
@@ -74,7 +76,12 @@ class MtkThalCaptureEncoder(
     private fun calculateCaptureDimensions() {
         // Аппаратный DIP снимает весь экран в 1920x1080, уменьшает уже сервер.
         // Для выборки цветов хватает 240p, и нагрузка на канал остаётся вменяемой.
-        val aspectRatio = mScreenWidth.toFloat() / mScreenHeight.toFloat()
+        // Нулевые метрики (часть прошивок на старте) заменяем на 16:9.
+        val aspectRatio = if (mScreenWidth > 0 && mScreenHeight > 0) {
+            mScreenWidth.toFloat() / mScreenHeight.toFloat()
+        } else {
+            16f / 9f
+        }
         mCaptureWidth = 426
         mCaptureHeight = (mCaptureWidth / aspectRatio).roundToInt()
         // Приводим к чётному
@@ -269,6 +276,18 @@ class MtkThalCaptureEncoder(
         val input = DataInputStream(process.inputStream)
         val headerBuf = ByteArray(8)
 
+        // stderr вычитываем параллельно: разговорчивый бинарник иначе забил бы буфер
+        // трубы (64 КБ) и завис на записи — захват встал бы без единой строки в логе
+        Thread({
+            try {
+                process.errorStream.bufferedReader().forEachLine { line ->
+                    if (line.isNotBlank()) Log.w(TAG, "[capture] $line")
+                }
+            } catch (_: Exception) {
+                // Труба закрывается вместе с процессом — это штатный конец чтения.
+            }
+        }, "mtk-thal-stderr").apply { isDaemon = true }.start()
+
         try {
             // Читаем заголовок состояния: magic (4 байта LE) + флаги (4 байта LE)
             input.readFully(headerBuf)
@@ -326,20 +345,23 @@ class MtkThalCaptureEncoder(
                 mListener.sendFrame(cropped.rgb, cropped.width, cropped.height)
             }
         } catch (e: IOException) {
-            if (mRunning) {
-                Log.e(TAG, "Read error", e)
-                try {
-                    val stderr = process.errorStream.bufferedReader().readText()
-                    if (stderr.isNotEmpty()) Log.e(TAG, "Process stderr: $stderr")
-                } catch (_: Exception) {
-                    // Это попытка дочитать причину сбоя для лога; сама ошибка уже записана выше.
-                }
-            }
+            // Причины сбоя процесс печатает в stderr — их уже вывел поток mtk-thal-stderr
+            if (mRunning) Log.e(TAG, "Read error", e)
         } catch (e: Exception) {
             if (mRunning) Log.e(TAG, "Unexpected error", e)
         }
 
+        // Цикл закончился: процесс либо умер сам, либо его убил stopInternal. Останки
+        // подчищаем здесь, иначе mProcess != null навсегда блокировал бы
+        // restartCaptureOnWorker, а mRunning=true — resumeRecording, и после сбоя
+        // бинарника захват не оживал бы до перезапуска сервиса.
+        try {
+            process.destroy()
+        } catch (_: Exception) {
+        }
+        if (mProcess === process) mProcess = null
         mCapturing = false
+        mRunning = false
     }
 
     override fun isCapturing(): Boolean = mCapturing

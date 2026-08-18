@@ -7,6 +7,7 @@ import android.os.Process
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
 import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor
+import java.util.concurrent.Executor
 import kotlin.math.max
 
 class AccessibilityEncoder(
@@ -31,12 +32,18 @@ class AccessibilityEncoder(
     private val mBorderCropper = com.vasmarfas.UniversalAmbientLight.common.util.BorderProcessor()
     private var mPixelBuffer: IntArray? = null
 
+    // Конвертация скриншота и разбор пикселей идут на потоке энкодера: на mainExecutor
+    // это были бы десятки мегабайт копий на каждый кадр прямо на главном потоке
+    private val mHandlerExecutor = Executor { task ->
+        mHandler?.post(task) ?: task.run()
+    }
+
     private val mCaptureRunnable = object : Runnable {
         override fun run() {
             if (!mRunning) return
             val start = System.currentTimeMillis()
 
-            mService.takeScreenshot { bitmap ->
+            mService.takeScreenshot(mHandlerExecutor) { bitmap ->
                 if (bitmap != null) {
                     processBitmap(bitmap)
                     bitmap.recycle()

@@ -123,6 +123,9 @@ abstract class ScreenEncoderBase(
 
     protected fun stopHandlerThread() {
         mHandlerThread.quitSafely()
+        // Колбэк MediaProjection.onStop приходит на этом же HandlerThread — join самого
+        // себя всегда выждал бы полный таймаут, удерживая монитор stopInternal.
+        if (Thread.currentThread() === mHandlerThread) return
         try {
             mHandlerThread.join(1000)
         } catch (e: InterruptedException) {

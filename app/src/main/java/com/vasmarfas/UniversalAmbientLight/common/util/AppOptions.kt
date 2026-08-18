@@ -172,8 +172,10 @@ class AppOptions(
          * @return список общих делителей от большего к меньшему
          */
         private fun getCommonDivisors(num1: Int, num2: Int): List<Int> {
-            val list = ArrayList<Int>()
+            // Нулевые метрики экрана (часть прошивок на старте) дали бы деление на ноль
             val min = Math.min(num1, num2)
+            if (min <= 0) return listOf(1)
+            val list = ArrayList<Int>()
             for (i in 1..min / 2)
                 if (num1 % i == 0 && num2 % i == 0)
                     list.add(i)

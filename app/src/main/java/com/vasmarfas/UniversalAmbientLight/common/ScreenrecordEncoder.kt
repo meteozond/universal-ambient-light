@@ -60,13 +60,24 @@ class ScreenrecordEncoder(
 
     private var mSupervisorThread: Thread? = null
 
+    // Текущий ADB-поток сессии: interrupt() чтение из сокета не разблокирует, поэтому
+    // stopInternal закрывает поток напрямую, и супервизор выходит из read().
+    @Volatile
+    private var mCurrentShell: AdbShell? = null
+
     // Снимаем в 480p: для подсветки детализации достаточно, а нагрузка на кодек куда меньше
     val mCapW: Int
     val mCapH: Int
 
     init {
         val w = 480
-        var h = (w * mScreenHeight.toFloat() / mScreenWidth.toFloat()).toInt()
+        // Часть прошивок на старте отдаёт нулевые метрики — деление уводило бы высоту в
+        // Int.MAX_VALUE; пока метрик нет, считаем экран 16:9
+        var h = if (mScreenWidth > 0 && mScreenHeight > 0) {
+            (w * mScreenHeight.toFloat() / mScreenWidth.toFloat()).toInt()
+        } else {
+            270
+        }
         if (h % 2 != 0) h++
         mCapW = w
         mCapH = h
@@ -121,6 +132,12 @@ class ScreenrecordEncoder(
                 }
             } catch (_: InterruptedException) {
                 Log.i(TAG, "Supervisor interrupted, stopping")
+            } finally {
+                // Как бы супервизор ни закончился, статус обязан стать честным: иначе после
+                // «giving up» isCapturing() вечно отвечал бы true, а resumeRecording() —
+                // no-op из-за mRunning.
+                mRunning = false
+                mCapturing = false
             }
         }, "screenrecord-supervisor").also {
             it.isDaemon = true
@@ -151,6 +168,7 @@ class ScreenrecordEncoder(
             Log.i(TAG, "ADB connecting (api=${Build.VERSION.SDK_INT}, port=$mAdbPort): $cmd")
             val openedShell = openAdbShell(cmd)
             shell = openedShell
+            mCurrentShell = openedShell
             Log.i(TAG, "ADB stream open")
 
             val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, mCapW, mCapH)
@@ -360,24 +378,35 @@ class ScreenrecordEncoder(
             }
         } finally {
             val wasRunning = mRunning
+            mCurrentShell = null
             mDataQueue.clear()
-            // Сначала прерываем потоки кодека
+            // Потоки кодека живут по while(mRunning) и при перезапуске сессии сами не
+            // выйдут — закрываем ADB-поток и ждём их, иначе старый поток входа заберёт
+            // из общей очереди первые куски новой сессии, а release() ниже освободил бы
+            // кодек прямо у них под руками.
+            // Всё это — разбор уже останавливаемой сессии: любой ресурс мог быть закрыт
+            // раньше нас (потоками кодека или упавшим ADB), и это не ошибка.
+            try {
+                shell?.close()
+            } catch (_: Exception) {
+            }
+            // Поток входа выходит по interrupt (poll очереди прерываем), и только после
+            // join он гарантированно не утащит куски следующей сессии. Поток выхода
+            // из dequeueOutputBuffer прерыванием не выбить — его выбивает stop() кодека
+            // через IllegalStateException, поэтому его join идёт после stop().
             codecInThread?.interrupt()
             codecOutThread?.interrupt()
-            // Ждём, пока потоки кодека заметят прерывание или mRunning=false
-            // Всё, что ниже, — разбор уже останавливаемой сессии: любой ресурс мог быть
-            // закрыт раньше нас (потоками кодека или упавшим ADB), и это не ошибка.
             try {
-                Thread.sleep(150)
-            } catch (_: Exception) {
+                codecInThread?.join(300)
+            } catch (_: InterruptedException) {
             }
             try {
                 decoder?.stop(); decoder?.release()
             } catch (_: Exception) {
             }
             try {
-                shell?.close()
-            } catch (_: Exception) {
+                codecOutThread?.join(300)
+            } catch (_: InterruptedException) {
             }
             if (!wasRunning) mCapturing = false
         }
@@ -533,11 +562,13 @@ class ScreenrecordEncoder(
         yRowStride: Int, yPixStride: Int, uvRowStride: Int, uvPixStride: Int,
     ) {
         val rgbSize = sw * sh * 3
-        // Работаем через локальную ссылку — безопасно, даже если stopInternal обнулит mRgbBuffer параллельно
+        // Работаем через локальную ссылку — безопасно, даже если stopInternal обнулит mRgbBuffer параллельно.
+        // Размер сверяем точно: Hyperion сериализует весь массив, и буфер длиннее кадра
+        // ушёл бы на сервер с хвостом от прежнего разрешения.
         val rgb: ByteArray
         val existing = mRgbBuffer
         rgb =
-            if (existing != null && existing.size >= rgbSize) existing else ByteArray(rgbSize).also {
+            if (existing != null && existing.size == rgbSize) existing else ByteArray(rgbSize).also {
                 mRgbBuffer = it
             }
         var dst = 0
@@ -612,6 +643,12 @@ class ScreenrecordEncoder(
         mRunning = false
         mCapturing = false
         mDataQueue.clear()
+        // Супервизор может сидеть в блокирующем чтении ADB-сокета, которое interrupt не
+        // разбудит, — закрываем поток, и read() возвращается с ошибкой.
+        try {
+            mCurrentShell?.close()
+        } catch (_: Exception) {
+        }
         mSupervisorThread?.interrupt()
         mRgbBuffer = null
         if (disconnect) {

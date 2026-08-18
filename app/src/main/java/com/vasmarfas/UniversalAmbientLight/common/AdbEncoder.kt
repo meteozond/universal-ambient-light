@@ -28,6 +28,8 @@ class AdbEncoder(
     private var mRunning = false
     @Volatile
     private var mCapturing = false
+
+    @Volatile
     private var mDadb: Dadb? = null
 
     private var mThread: HandlerThread? = null
@@ -122,7 +124,17 @@ class AdbEncoder(
                 val port = AdbPortResolver.resolveForDadb(mContext, mAdbPort)
                 Log.i(TAG, "Connecting to ADB local port $port (configured $mAdbPort)...")
                 // Dadb.create блокируется до подключения либо бросает исключение
-                mDadb = Dadb.create("127.0.0.1", port, keyPair)
+                val dadb = Dadb.create("127.0.0.1", port, keyPair)
+                if (!mRunning) {
+                    // stopRecording успел отработать, пока мы подключались: он уже закрыл
+                    // и обнулил mDadb, и присвоенное сейчас соединение осталось бы висеть
+                    try {
+                        dadb.close()
+                    } catch (_: Exception) {
+                    }
+                    return
+                }
+                mDadb = dadb
                 Log.i(TAG, "ADB connected to localhost:$port")
             }
         } catch (e: Exception) {

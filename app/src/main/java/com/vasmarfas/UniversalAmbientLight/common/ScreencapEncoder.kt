@@ -57,6 +57,11 @@ class ScreencapEncoder(
     private var mUseFileMode = false
     private var mFailCount = 0
 
+    // Процесс текущего кадра: чтение его stdout не ограничено таймаутом, и зависший
+    // screencap держал бы поток захвата вечно — stopInternal убивает процесс напрямую.
+    @Volatile
+    private var mCurrentProcess: java.lang.Process? = null
+
     private val mCaptureRunnable = object : Runnable {
         override fun run() {
             if (!mRunning) return
@@ -119,7 +124,6 @@ class ScreencapEncoder(
     }
 
     private fun startCapture() {
-        cleanupStaleCaptureFiles()
         val thread = HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND)
         mThread = thread
         thread.start()
@@ -127,6 +131,9 @@ class ScreencapEncoder(
         mHandler = handler
         mRunning = true
         mCapturing = true
+        // Уборка сотен PNG после упавшей сессии — файловый I/O, конструктор зовут с
+        // главного потока сервиса
+        handler.post { cleanupStaleCaptureFiles() }
         handler.post(mCaptureRunnable)
     }
 
@@ -145,6 +152,7 @@ class ScreencapEncoder(
     private fun captureFrame() {
         var process: java.lang.Process? = null
         try {
+            if (!mRunning) return
             var bitmap: Bitmap? = null
 
             if (mUseFileMode) {
@@ -159,6 +167,7 @@ class ScreencapEncoder(
                 }
 
                 process = Runtime.getRuntime().exec(cmd)
+                mCurrentProcess = process
                 if (!process.waitFor(CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                     Log.w(TAG, "screencap (file mode) timed out after ${CAPTURE_TIMEOUT_MS}ms")
                     try {
@@ -176,7 +185,10 @@ class ScreencapEncoder(
                     val opts = BitmapFactory.Options().apply { inSampleSize = computeSampleSize() }
                     bitmap = BitmapFactory.decodeFile(file.absolutePath, opts)
                     file.delete()
-                    mFailCount = 0
+                    // Сбрасывать счётчик можно только по декодированному кадру: файл,
+                    // который не разобрался, — такой же провал, и без инкремента здесь
+                    // эскалация на onFatalError никогда бы не наступила
+                    if (bitmap != null) mFailCount = 0 else mFailCount++
                 } else {
                     val err = process.errorStream.bufferedReader().use { it.readText() }
                     Log.w(TAG, "File capture failed (root=$mUseRoot). Stderr: $err")
@@ -188,6 +200,7 @@ class ScreencapEncoder(
                 val cmd = if (mUseRawScreencap) baseCmd else "$baseCmd -p"
 
                 process = Runtime.getRuntime().exec(cmd)
+                mCurrentProcess = process
 
                 val inputStream = process.inputStream
                 val buffer = ByteArrayOutputStream()
@@ -309,6 +322,7 @@ class ScreencapEncoder(
             Log.w(TAG, "screencap error: ${e.message}")
             mFailCount++
         } finally {
+            mCurrentProcess = null
             process?.destroy()
         }
     }
@@ -348,9 +362,11 @@ class ScreencapEncoder(
         }
         bitmap.getPixels(pixelBuffer, 0, w, 0, 0, w, h)
 
+        // Размер сверяем точно: Hyperion сериализует весь массив, и буфер длиннее кадра
+        // ушёл бы на сервер с хвостом от прежнего разрешения
         val rgbSize = pixelCount * 3
         var rgbBuffer = mRgbBuffer
-        if (rgbBuffer == null || rgbBuffer.size < rgbSize) {
+        if (rgbBuffer == null || rgbBuffer.size != rgbSize) {
             rgbBuffer = ByteArray(rgbSize)
             mRgbBuffer = rgbBuffer
         }
@@ -403,6 +419,12 @@ class ScreencapEncoder(
     private fun stopInternal(disconnect: Boolean) {
         mRunning = false
         mCapturing = false
+        // Зависший screencap держит поток захвата в чтении stdout — убиваем процесс,
+        // чтобы quitSafely ниже был не пустым пожеланием
+        try {
+            mCurrentProcess?.destroyForcibly()
+        } catch (_: Exception) {
+        }
         mHandler?.removeCallbacksAndMessages(null)
         mThread?.quitSafely()
         mThread = null

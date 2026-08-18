@@ -19,11 +19,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.vasmarfas.UniversalAmbientLight.R
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
+import com.vasmarfas.UniversalAmbientLight.common.util.CameraFrameDetectionRun
 import com.vasmarfas.UniversalAmbientLight.common.util.CameraGeometry
 import com.vasmarfas.UniversalAmbientLight.common.util.CameraIdleDetector
 import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor
+import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -110,6 +113,15 @@ class CameraEncoder(
     private var blackFrame: ByteArray? = null
     private var lastSentWidth = 0
     private var lastSentHeight = 0
+
+    // --- Автоопределение границ экрана (issue #39) ---
+    // Запускается при привязке камеры или кнопкой из UI (main), кадры добавляются в потоке
+    // анализа; внутри окно само делится пополам и сверяет половины.
+    private val mDetectionRun = CameraFrameDetectionRun()
+    private var mDetectGrid: IntArray? = null
+
+    @Volatile
+    private var mDetectPending = false
 
     init {
         val q = if (options.captureQuality > 0) options.captureQuality else 128
@@ -313,6 +325,9 @@ class CameraEncoder(
         val buffer = plane.buffer
         val rowStride = plane.rowStride
 
+        // Пока идёт поиск экрана, кадры уходят детектору, а не на ленту
+        if (runFrameDetection(buffer, rowStride, width, height, rotation)) return
+
         // Проецируем заданные углы на сырой буфер (результат кэшируется по геометрии)
         val srcPts = mapCornersToRaw(width, height, rotation)
 
@@ -422,6 +437,78 @@ class CameraEncoder(
         mappedHeight = height
         mappedRotation = rotation
         return mappedCorners
+    }
+
+    // ======================== Автоопределение границ экрана ========================
+
+    /** Запускает (или перезапускает) поиск экрана — при старте захвата и по кнопке в UI. */
+    fun requestFrameDetection() {
+        // Окно открывается с первым кадром анализа, а не здесь: между запросом и первым
+        // кадром лежит открытие камеры (до полутора секунд на старых устройствах), и
+        // открытое заранее окно потеряло бы на этом свою первую половину.
+        mDetectPending = true
+        Log.i(TAG, "Auto frame detection: sampling for ${CameraFrameDetectionRun.DEFAULT_WINDOW_MS} ms")
+    }
+
+    /**
+     * Копит замеры для поиска экрана и по окончании окна применяет результат.
+     *
+     * @return true, пока идёт поиск: кадр израсходован детектором и на ленту не уходит
+     */
+    private fun runFrameDetection(
+        buffer: ByteBuffer,
+        rowStride: Int,
+        width: Int,
+        height: Int,
+        rotation: Int,
+    ): Boolean {
+        if (mDetectPending) {
+            mDetectPending = false
+            mDetectionRun.start(System.currentTimeMillis())
+        }
+        if (!mDetectionRun.isRunning) return false
+
+        val grid = mDetectGrid ?: IntArray(mDetectionRun.cellCount).also { mDetectGrid = it }
+        CameraFrameDetectionRun.sampleGrid(
+            buffer, rowStride, width, height, mDetectionRun.cols, mDetectionRun.rows, grid
+        )
+
+        // Лента гасится на всё окно замеров: собственная подсветка на стене — это ровно
+        // такая же яркая область, и детектор честно посчитал бы её кандидатом.
+        sendBlackFrame()
+
+        val detection = mDetectionRun.addFrame(grid, System.currentTimeMillis()) ?: return true
+
+        val corners = detection.corners
+        if (corners == null) {
+            Log.i(TAG, "Auto frame detection gave up: ${detection.reason}")
+            // Кнопка автоподстройки живёт в интерфейсе, а кадры разбираем мы: без этого
+            // экран настройки знал бы только «ничего не пришло» и не мог бы объяснить, что
+            // именно не так
+            Preferences(context).putString(
+                R.string.pref_key_camera_detect_result,
+                "${detection.code}:${System.currentTimeMillis()}"
+            )
+        } else {
+            applyDetectedCorners(corners, rotation)
+        }
+        return true
+    }
+
+    /**
+     * Переносит найденные углы в текущую сессию и в настройки: экран настройки углов и
+     * подсказка на главном экране должны показывать то же, по чему идёт захват.
+     */
+    private fun applyDetectedCorners(rawCorners: FloatArray, rotation: Int) {
+        CameraGeometry.rawToDisplayCorners(rawCorners, mCorners, rotation)
+
+        // Проекция углов кэшируется по геометрии кадра, а она не изменилась — сбрасываем кэш
+        // сами, иначе захват продолжил бы идти по старому четырёхугольнику.
+        mappedWidth = -1
+
+        val serialized = cornersToString(mCorners)
+        Preferences(context).putString(R.string.pref_key_camera_corners, serialized)
+        Log.i(TAG, "Auto frame detection: corners=$serialized")
     }
 
     // ======================== Автоматический сон ========================

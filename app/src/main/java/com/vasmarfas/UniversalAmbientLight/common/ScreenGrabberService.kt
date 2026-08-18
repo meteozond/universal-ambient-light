@@ -140,6 +140,13 @@ class ScreenGrabberService : Service() {
                         if (backend != null) {
                             if (DEBUG) Log.v(TAG, "Resuming ${backend.javaClass.simpleName}")
                             backend.resumeRecording()
+                            // После onStop от системы (сон ТВ) у ScreenEncoder уже нет ни
+                            // ImageReader, ни потока захвата — resumeRecording() no-op, и
+                            // единственный путь оживления — пересоздание из сохранённой
+                            // проекции.
+                            if (!isCapturing && backend is ScreenEncoder) {
+                                restartEncoderFromSavedProjection()
+                            }
                         } else if (mCaptureSource != "camera") {
                             // Если MediaProjection остановила система (уход в сон), resumeRecording() не спасёт —
                             // пересоздаём энкодер из сохранённых данных проекции.
@@ -377,6 +384,20 @@ class ScreenGrabberService : Service() {
                     }
                 }
 
+                ACTION_DETECT_FRAME -> {
+                    // Кнопка автоподстройки: перезапускаем поиск экрана прямо в идущей
+                    // сессии камеры.
+                    val backend = mActiveBackend
+                    if (backend is CameraEncoder) {
+                        backend.requestFrameDetection()
+                    } else {
+                        Log.i(TAG, "ACTION_DETECT_FRAME ignored: camera capture is not running")
+                        // Интент мог создать сервис заново (кнопку нажали в момент его
+                        // остановки) — не оставляем пустой foreground-сервис висеть.
+                        if (mHyperionThread == null) stopSelf()
+                    }
+                }
+
                 ACTION_STOP -> stopAllCapture()
                 ACTION_CLEAR -> {
                     // Один чёрный кадр, но соединение оставляем
@@ -387,10 +408,20 @@ class ScreenGrabberService : Service() {
                             "ACTION_CLEAR: clearing lights once (${backend.javaClass.simpleName})"
                         )
                         backend.clearLights()
+                    } else if (mHyperionThread == null) {
+                        // Интент пришёл в незапущенный сервис и создал его — не оставляем
+                        // пустой foreground-сервис висеть с уведомлением
+                        stopSelf()
                     }
                 }
 
-                GET_STATUS -> notifyActivity()
+                GET_STATUS -> {
+                    notifyActivity()
+                    // Запрос статуса мог создать сервис заново (гонка с onDestroy) — не
+                    // оставляем пустой foreground-сервис висеть с уведомлением
+                    if (mHyperionThread == null) stopSelf()
+                }
+
                 ACTION_EXIT -> stopSelf()
             }
         }
@@ -441,7 +472,19 @@ class ScreenGrabberService : Service() {
     @RequiresApi(Build.VERSION_CODES.R)
     private fun initialForegroundTypeFor(action: String?): Int = when (action) {
         ACTION_START_CAMERA -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-        ACTION_START -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        ACTION_START -> {
+            // Тип mediaProjection без выданного согласия роняет startForeground на 14+
+            // (исключение глотается, но сервис остаётся не-foreground до повторной
+            // попытки) — для методов без проекции сразу берём mediaPlayback
+            val method = Preferences(this)
+                .getString(R.string.pref_key_capture_method, "media_projection")
+            if (method == "media_projection") {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            }
+        }
+
         else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
     }
 
@@ -626,10 +669,29 @@ class ScreenGrabberService : Service() {
 
         notifyActivity()
 
-        mHyperionThread?.interrupt()
-        mHyperionThread = null
+        shutDownHyperionThread()
 
         stopSelf()
+    }
+
+    /**
+     * Гасит HyperionThread вместе с его executor'ами и клиентом. Один interrupt() здесь
+     * не работает: после успешного подключения run() уже завершён, и без disconnect()
+     * каждый неудачный старт оставлял бы два неубиваемых потока, а клиент Adalight —
+     * занятый USB-порт до конца процесса. disconnect() блокирует (awaitTermination,
+     * закрытие порта), поэтому уводится с вызывающего потока.
+     */
+    private fun shutDownHyperionThread() {
+        val thread = mHyperionThread ?: return
+        mHyperionThread = null
+        thread.interrupt()
+        Thread({
+            try {
+                thread.receiver.disconnect()
+            } catch (e: Exception) {
+                Log.w(TAG, "HyperionThread shutdown failed: ${e.message}")
+            }
+        }, "hyperion-shutdown").apply { isDaemon = true }.start()
     }
 
     private fun buildExitButton(): Intent {
@@ -801,8 +863,12 @@ class ScreenGrabberService : Service() {
                 options,
                 adbPort,
                 onFatalError = { errorMsg ->
-                    mStartError = errorMsg
-                    haltStartup()
+                    // Колбэк приходит из потока энкодера — состояние сервиса и
+                    // startForeground трогаем только с главного
+                    mHandler?.post {
+                        mStartError = errorMsg
+                        haltStartup()
+                    }
                 }
             )
             mActiveBackend = encoder
@@ -821,8 +887,12 @@ class ScreenGrabberService : Service() {
                 options,
                 adbPort,
                 onFatalError = { errorMsg ->
-                    mStartError = errorMsg
-                    haltStartup()
+                    // Колбэк приходит из потока энкодера — состояние сервиса и
+                    // startForeground трогаем только с главного
+                    mHandler?.post {
+                        mStartError = errorMsg
+                        haltStartup()
+                    }
                 }
             )
             mActiveBackend = encoder
@@ -839,8 +909,12 @@ class ScreenGrabberService : Service() {
                 metrics.heightPixels,
                 options,
                 onFatalError = { errorMsg ->
-                    mStartError = errorMsg
-                    haltStartup()
+                    // Колбэк приходит из потока энкодера — состояние сервиса и
+                    // startForeground трогаем только с главного
+                    mHandler?.post {
+                        mStartError = errorMsg
+                        haltStartup()
+                    }
                 }
             )
             mActiveBackend = encoder
@@ -929,14 +1003,19 @@ class ScreenGrabberService : Service() {
             )
             mActiveBackend = encoder
             encoder.sendStatus()
-        } catch (e: SecurityException) {
-            // Токен MediaProjection мог истечь или быть отозван системой. Падать из приёмника
-            // широковещаний нельзя — логируем и останавливаемся.
+        } catch (e: Exception) {
+            // Токен MediaProjection мог истечь или быть отозван системой; на Android 14+
+            // повторное использование согласия запрещено и бросает SecurityException (часть
+            // прошивок — IllegalStateException). Падать из приёмника широковещаний нельзя —
+            // сообщаем об ошибке и останавливаемся, иначе сервис навсегда завис бы в
+            // foreground без захвата.
             Log.e(TAG, "Failed to restart encoder from saved projection: ${e.message}", e)
             mStartError = resources.getString(R.string.error_media_projection_denied)
             mProjectionResultCode = null
             mProjectionDataExtras = null
             releaseResource()
+            notifyActivity()
+            stopSelf()
         }
     }
 
@@ -950,12 +1029,15 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Stopping ${backend.javaClass.simpleName}")
             backend.stopRecording()
             mActiveBackend = null
+            // Клиент и executors закроет цепочка stopRecording → listener.disconnect()
+            mHyperionThread?.interrupt()
+            mHyperionThread = null
+        } else {
+            // Энкодера нет — закрывать соединение некому, кроме нас
+            shutDownHyperionThread()
         }
 
         releaseResource()
-
-        mHyperionThread?.interrupt()
-        mHyperionThread = null
     }
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
@@ -1100,6 +1182,7 @@ class ScreenGrabberService : Service() {
         const val ACTION_START_CAMERA = BASE + "ACTION_START_CAMERA"
         const val ACTION_STOP = BASE + "ACTION_STOP"
         const val ACTION_CLEAR = BASE + "ACTION_CLEAR"
+        const val ACTION_DETECT_FRAME = BASE + "ACTION_DETECT_FRAME"
         const val ACTION_EXIT = BASE + "ACTION_EXIT"
         const val GET_STATUS = BASE + "ACTION_STATUS"
         const val EXTRA_RESULT_CODE = BASE + "EXTRA_RESULT_CODE"

@@ -57,6 +57,73 @@ object CameraGeometry {
     }
 
     /**
+     * Обратное к [mapCornersToRaw] для готовых углов: переводит четыре точки из
+     * нормализованных координат сырого буфера в нормализованные экранные, в которых хранится
+     * настройка углов. Поворот берётся тот же, но применяется к четырём точкам, а не к сетке
+     * замеров, — это дешевле и не требует Matrix.
+     *
+     * Порядок TL, TR, BR, BL восстанавливается заново: после поворота бывший левый верхний
+     * угол оказывается, например, правым верхним, и переписать координаты на месте мало.
+     */
+    fun rawToDisplayCorners(corners: FloatArray, out: FloatArray, rotation: Int) {
+        for (i in 0 until 4) {
+            val u = corners[i * 2]
+            val v = corners[i * 2 + 1]
+            when (rotation) {
+                90 -> {
+                    out[i * 2] = 1f - v
+                    out[i * 2 + 1] = u
+                }
+
+                180 -> {
+                    out[i * 2] = 1f - u
+                    out[i * 2 + 1] = 1f - v
+                }
+
+                270 -> {
+                    out[i * 2] = v
+                    out[i * 2 + 1] = 1f - u
+                }
+
+                else -> {
+                    out[i * 2] = u
+                    out[i * 2 + 1] = v
+                }
+            }
+        }
+        sortCorners(out)
+    }
+
+    /** Раскладывает четыре точки в порядке TL, TR, BR, BL по диагоналям x+y и x−y. */
+    private fun sortCorners(points: FloatArray) {
+        var minSum = Float.MAX_VALUE
+        var maxSum = -Float.MAX_VALUE
+        var minDiff = Float.MAX_VALUE
+        var maxDiff = -Float.MAX_VALUE
+        val sorted = FloatArray(8)
+
+        for (i in 0 until 4) {
+            val x = points[i * 2]
+            val y = points[i * 2 + 1]
+            val sum = x + y
+            val diff = x - y
+            if (sum < minSum) {
+                minSum = sum; sorted[0] = x; sorted[1] = y
+            }
+            if (diff > maxDiff) {
+                maxDiff = diff; sorted[2] = x; sorted[3] = y
+            }
+            if (sum > maxSum) {
+                maxSum = sum; sorted[4] = x; sorted[5] = y
+            }
+            if (diff < minDiff) {
+                minDiff = diff; sorted[6] = x; sorted[7] = y
+            }
+        }
+        sorted.copyInto(points)
+    }
+
+    /**
      * Прямоугольник внутри четырёхугольника телевизора для замеров авто-сна. Сжимается на
      * [inset] от каждой стороны, чтобы слегка неточная калибровка углов не заставляла
      * смотреть на стену вместо панели. Пишет в [out] четыре числа: left, top, right, bottom.

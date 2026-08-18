@@ -99,6 +99,17 @@ When using **Camera** as the capture source:
 - Ensure good lighting so the camera can clearly see the TV screen.
 - The corner adjustment helps compensate for non-square camera placement relative to the TV.
 
+**Find the TV** in Camera Corner Setup tries to place the corners for you. For four seconds it
+watches the frame, telling a lit panel from the room by brightness and a TV from a lamp or a
+window by whether the picture changes, then loads the result into the overlay — nothing is
+saved until you press Save. The strip is held dark while measuring, otherwise its own glow on
+the wall reads as part of the screen.
+
+Treat it as a starting point rather than a finished setting: it outlines the lit picture and
+not the panel itself, gets confused in a brightly lit room, and the corners usually need
+nudging by hand afterwards. When it finds nothing it says why, and the saved corners stay
+untouched; the detailed reason goes to logcat under `AutoFrameDetection` and `CameraEncoder`.
+
 ### 3.2. Camera Sleep Mode
 Camera capture receives no standby signal from the TV, so a powered-off screen keeps
 streaming sensor noise to the strip. The **Camera Sleep Mode** settings group (visible only

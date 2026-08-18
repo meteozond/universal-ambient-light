@@ -21,6 +21,10 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
         private const val DEFAULT_SETTLING_TIME_MS = 50
         private const val DEFAULT_OUTPUT_DELAY_MS = 0L
         private const val MIN_UPDATE_INTERVAL_MS = 1L
+
+        // Пауза между повторами сошедшегося кадра. Совсем замолчать нельзя: часть прошивок
+        // по таймауту тишины уходит в собственный эффект, у WLED это staytime ~10 секунд.
+        private const val IDLE_RESEND_MS = 1000L
     }
 
     // Конфигурация
@@ -34,6 +38,15 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
     private var mTargetValues: Array<ColorRgb>? = null
     private var mTargetTime: Long = 0
 
+    // Кадр после схождения интерполяции уже отправлен: дальше цикл шлёт только редкие
+    // повторы. Гнать одинаковые кадры на полной частоте нельзя — сплошной поток без пауз
+    // переполняет приёмник Adalight, протокол рассинхронизируется, и лента мигает даже
+    // на статичной картинке (issue #42).
+    private var mIdleFrameSent = false
+
+    @Volatile
+    private var mLastSendMs = 0L
+
     // Очередь вывода (Output Delay) - хранит пары (время добавления, кадр)
     private data class TimedFrame(val timestamp: Long, val colors: Array<ColorRgb>)
 
@@ -46,6 +59,12 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
     @Volatile
     private var mRunning = false
 
+    // Поколение цикла: доигрывающий тик остановленного цикла иначе перепощивал бы себя в
+    // очередь нового HandlerThread'а параллельно с постом из start() — две цепочки тиков
+    // дают двойную частоту отправки навсегда
+    @Volatile
+    private var mGeneration = 0
+
     // Отслеживание времени последнего обновления (дебаунсинг)
     private var mLastUpdateTime: Long = 0
 
@@ -56,11 +75,12 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
 
     private val mUpdateRunnable = object : Runnable {
         override fun run() {
+            val generation = mGeneration
             if (!mRunning || !mEnabled) return
 
             updateLeds()
 
-            if (mRunning && mHandler != null) {
+            if (mRunning && generation == mGeneration && mHandler != null) {
                 val intervalMs = 1000L / mUpdateFrequencyHz
                 mHandler?.postDelayed(this, intervalMs)
             }
@@ -81,6 +101,7 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
 
         synchronized(this) {
             mTargetTime = now + mSettlingTimeMs
+            mIdleFrameSent = false
 
             // Инициализация при первом вызове или изменении размера
             val current = mTargetValues
@@ -116,13 +137,19 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
     }
 
     private fun updateLeds() {
-        val colorsToSend: Array<ColorRgb>
+        val colorsToSend: Array<ColorRgb>?
 
         synchronized(this) {
-            colorsToSend = interpolateFrameLinear() ?: return
+            colorsToSend = interpolateFrameLinear()
         }
 
-        queueColors(colorsToSend)
+        if (colorsToSend != null) {
+            queueColors(colorsToSend)
+        } else if (mOutputDelayMs != 0L) {
+            // Новый кадр в паузе между повторами не добавился, но хвост очереди задержки
+            // обязан дойти до ленты и без него
+            drainOutputQueue(System.currentTimeMillis())
+        }
     }
 
     private fun interpolateFrameLinear(): Array<ColorRgb>? {
@@ -135,6 +162,10 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
             // Время истекло, использовать целевые значения
             // Обновляем mPreviousValues на месте
             for (i in targets.indices) previous[i].set(targets[i])
+
+            // Цель достигнута — дальше только редкие повторы (см. mIdleFrameSent)
+            if (mIdleFrameSent && now - mLastSendMs < IDLE_RESEND_MS) return null
+            mIdleFrameSent = true
 
             if (mOutputDelayMs == 0L) return previous
 
@@ -170,31 +201,48 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
         } else {
             val now = System.currentTimeMillis()
             synchronized(mOutputQueue) {
-                // Добавляем кадр с текущим временем
                 mOutputQueue.addLast(TimedFrame(now, ledColors))
+            }
+            drainOutputQueue(now)
+        }
+    }
 
-                // Проверяем, прошло ли достаточно времени с момента добавления самого старого кадра
-                while (mOutputQueue.isNotEmpty()) {
-                    val oldestFrame = mOutputQueue.first
-                    val elapsed = now - oldestFrame.timestamp
-                    if (elapsed >= mOutputDelayMs) {
-                        val frameToSend = mOutputQueue.removeFirst()
-                        sendToDevice(frameToSend.colors)
-                    } else {
-                        break // Самый старый кадр еще не готов к отправке
-                    }
+    /**
+     * Отдаёт все кадры, отлежавшие свою задержку. Под блокировкой только работа с очередью.
+     * Отправка — снаружи: внутри неё блокирующая запись в порт или сокет, а этот же монитор
+     * берёт stop() с главного потока при засыпании ТВ — держать его на время I/O нельзя.
+     */
+    private fun drainOutputQueue(now: Long) {
+        val ready = ArrayList<TimedFrame>(2)
+        synchronized(mOutputQueue) {
+            while (mOutputQueue.isNotEmpty()) {
+                val oldestFrame = mOutputQueue.first
+                if (now - oldestFrame.timestamp >= mOutputDelayMs) {
+                    ready.add(mOutputQueue.removeFirst())
+                } else {
+                    break
                 }
             }
+        }
+        for (frame in ready) {
+            sendToDevice(frame.colors)
         }
     }
 
     private fun sendToDevice(colors: Array<ColorRgb>) {
+        mLastSendMs = System.currentTimeMillis()
         mDataSender?.sendLedData(colors)
     }
 
+    // start/stop синхронизированы: start() зовут и поток отправки кадров, и поток
+    // переподключения WLED — без блокировки два одновременных вызова создали бы по
+    // HandlerThread, и первый из них остался бы жить навсегда (stop() видит только
+    // последний mHandler).
+    @Synchronized
     fun start() {
         if (mRunning) return
 
+        mGeneration++
         val thread = HandlerThread("ColorSmoothing", Process.THREAD_PRIORITY_BACKGROUND)
         mHandlerThread = thread
         thread.start()
@@ -206,8 +254,10 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
         handler.postDelayed(mUpdateRunnable, intervalMs)
     }
 
+    @Synchronized
     fun stop() {
         mRunning = false
+        mGeneration++
         mHandler?.removeCallbacksAndMessages(null)
         mHandler = null
         mHandlerThread?.quitSafely()
@@ -215,10 +265,9 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
         synchronized(mOutputQueue) {
             mOutputQueue.clear()
         }
-        synchronized(this) {
-            mPreviousValues = null
-            mTargetValues = null
-        }
+        mPreviousValues = null
+        mTargetValues = null
+        mIdleFrameSent = false
     }
 
     fun setSettlingTime(ms: Int) {
@@ -230,14 +279,11 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
     }
 
     fun setUpdateFrequency(hz: Int) {
+        // Перепощивать runnable отсюда нельзя: auto-throttle Adalight зовёт этот метод из
+        // самого цикла отправки, removeCallbacksAndMessages выполняющийся runnable не
+        // снимает, и в очереди оказались бы две цепочки тиков — двойная частота навсегда.
+        // Цикл сам читает mUpdateFrequencyHz на каждом тике и подхватит новое значение.
         mUpdateFrequencyHz = max(1, min(60, hz))
-        // Обновить интервал, если уже запущено
-        val handler = mHandler
-        if (mRunning && handler != null) {
-            handler.removeCallbacksAndMessages(null)
-            val intervalMs = 1000L / mUpdateFrequencyHz
-            handler.postDelayed(mUpdateRunnable, intervalMs)
-        }
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -300,12 +346,9 @@ class ColorSmoothing(private val mDataSender: LedDataSender?) {
                 mUpdateFrequencyHz = 25
             }
         }
-        // Обновить интервал, если уже запущено
-        val handler = mHandler
-        if (mRunning && handler != null) {
-            handler.removeCallbacksAndMessages(null)
-            val intervalMs = 1000L / mUpdateFrequencyHz
-            handler.postDelayed(mUpdateRunnable, intervalMs)
-        }
+        // Выключенный пресет должен погасить и цикл: иначе mRunning остаётся true, и
+        // последующий setEnabled(true) не смог бы его перезапустить.
+        if (!mEnabled && mRunning) stop()
+        // Новый интервал цикл подхватит сам на следующем тике (см. setUpdateFrequency).
     }
 }

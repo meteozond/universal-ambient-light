@@ -47,6 +47,9 @@ class WLEDClient(
 
     @Volatile
     private var mConnected = false
+
+    @Volatile
+    private var mClosed = false
     private var mSocket: DatagramSocket? = null
     private var mAddress: InetAddress? = null
 
@@ -67,7 +70,6 @@ class WLEDClient(
     private val mLastReconnectAttemptMs = AtomicLong(0L)
     private val mBlockedUntilMs = AtomicLong(0L)
     private val mLastErrorLogMs = AtomicLong(0L)
-    private var mDdpSequenceNumber = 1 // 1-15, 0 ignored
 
     init {
         // Порт должен попадать в диапазон 1-65535
@@ -104,8 +106,11 @@ class WLEDClient(
         mKeepAliveExecutor.scheduleWithFixedDelay({
             val lastLeds = mLastLeds
             if (mPaused || !mConnected || lastLeds == null) return@scheduleWithFixedDelay
-            // Повторяем последний кадр, чтобы соединение не считалось потерянным
-            sendLedData(lastLeds)
+            // Повторяем последний кадр, чтобы соединение не считалось потерянным.
+            // Копия обязательна: при outputDelay=0 сглаживание отдаёт свой рабочий массив
+            // и продолжает менять его в такт интерполяции — сериализация живого массива
+            // дала бы кадр из смеси старых и новых цветов. Раз в секунду копия дешёвая.
+            sendLedData(Array(lastLeds.size) { lastLeds[it].clone() })
         }, 1000, 1000, TimeUnit.MILLISECONDS)
     }
 
@@ -140,6 +145,9 @@ class WLEDClient(
 
     @Synchronized
     private fun reconnectIfNeeded() {
+        // После disconnect() воскрешать сокет нельзя: реконнект, начатый из sendPacket в
+        // момент остановки, заново открыл бы сокет и HandlerThread сглаживания навсегда
+        if (mClosed) return
         val now = System.currentTimeMillis()
         val last = mLastReconnectAttemptMs.get()
         if (now - last < 2000) return
@@ -215,7 +223,10 @@ class WLEDClient(
 
     @Throws(IOException::class)
     override fun disconnect() {
-        mConnected = false
+        synchronized(this) {
+            mClosed = true
+            mConnected = false
+        }
         mSmoothing.stop()
         mKeepAliveExecutor.shutdownNow()
         mResumeExecutor.shutdownNow()
@@ -363,7 +374,9 @@ class WLEDClient(
     private fun createDdpPackets(leds: Array<ColorRgb>): List<ByteArray> {
         val packets = ArrayList<ByteArray>()
         val bytesPerPixel = bytesPerPixel()
-        val channelsPerPacket = DDP_MAX_LEDS_PER_PACKET * bytesPerPixel
+        // Предел пакета в байтах данных, а не в светодиодах: RGBW-лента на пределе в 480
+        // светодиодов дала бы 1930 байт — больше MTU, и часть прошивок теряет фрагменты.
+        val channelsPerPacket = (DDP_MAX_DATA_BYTES / bytesPerPixel) * bytesPerPixel
         val channelCount = leds.size * bytesPerPixel
         val packetCount = (channelCount + channelsPerPacket - 1) / channelsPerPacket
 
@@ -381,13 +394,11 @@ class WLEDClient(
             // Заголовок
             packet[0] = (0x40 or (if (isLastPacket) 0x01 else 0x00)).toByte() // VER1 | PUSH
             packet[1] = 0 // Sequence number 0 (ignored by receiver)
-            // Байт типа данных DDP: старший бит — customer defined, биты 5-3 задают формат
-            // (001 = RGB, 011 = RGBW), биты 2-0 — размер пикселя (5 = 24 бита, 6 = 32 бита).
-            packet[2] = if (mRgbw) {
-                (0x80 or (3 shl 3) or 6).toByte()
-            } else {
-                (0x80 or (1 shl 3) or 5).toByte()
-            }
+            // Байт типа данных DDP: биты 5-3 — формат (001 = RGB, 011 = RGBW), биты 2-0 —
+            // разрядность канала (011 = 8 бит). WLED различает RGB/RGBW именно по битам
+            // формата; customer-бит и коды разрядности «на пиксель» из старой версии были
+            // отсебятиной вне спецификации.
+            packet[2] = if (mRgbw) 0x1B.toByte() else 0x0B.toByte()
 
             packet[3] = 0x01 // ID: DISPLAY
 
@@ -606,14 +617,15 @@ class WLEDClient(
 
     companion object {
         private const val TAG = "WLEDClient"
-        private val logsEnabled = true
+        private const val logsEnabled = false
         private const val DEFAULT_PORT_DDP = 4048
         private const val DEFAULT_PORT_DRGB = 19446
 
         // Константы DDP
         private const val DDP_HEADER_SIZE = 10
-        private const val DDP_MAX_LEDS_PER_PACKET = 480
-        private const val DDP_CHANNELS_PER_PACKET = DDP_MAX_LEDS_PER_PACKET * 3
+
+        /** 480 RGB-светодиодов — максимум данных на пакет по спецификации DDP. */
+        private const val DDP_MAX_DATA_BYTES = 1440
 
         // Константы UDP raw
         private const val PROTOCOL_DRGB: Byte = 2

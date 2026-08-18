@@ -30,12 +30,22 @@ class HyperionFlatBuffers(
 
         val socket = Socket()
         mSocket = socket
-        socket.tcpNoDelay = true // Disable Nagle's algorithm for low latency
-        socket.sendBufferSize = 8192 // Smaller buffer for faster sends
-        socket.receiveBufferSize = 4096
-        socket.connect(InetSocketAddress(address, port), TIMEOUT)
-        socket.soTimeout = 10 // Very short timeout for non-blocking behavior
-        register()
+        try {
+            socket.tcpNoDelay = true // Disable Nagle's algorithm for low latency
+            socket.sendBufferSize = 8192 // Smaller buffer for faster sends
+            socket.receiveBufferSize = 4096
+            socket.connect(InetSocketAddress(address, port), TIMEOUT)
+            socket.soTimeout = 10 // Very short timeout for non-blocking behavior
+            register()
+        } catch (e: Exception) {
+            // Исключение из конструктора оставляет объект недостижимым — сокет, уже
+            // успевший подключиться, без close() тёк бы на каждой попытке реконнекта
+            try {
+                socket.close()
+            } catch (_: IOException) {
+            }
+            throw e
+        }
     }
 
     private fun newBuilder(): FlatBufferBuilder = FlatBufferBuilder(1024)
@@ -51,13 +61,18 @@ class HyperionFlatBuffers(
     }
 
     override fun isConnected(): Boolean {
-        return mSocket?.isConnected == true
+        // Socket.isConnected после close() остаётся true — без проверки isClosed клиент
+        // выглядел бы подключённым и после disconnect()
+        val socket = mSocket ?: return false
+        return socket.isConnected && !socket.isClosed
     }
 
     @Throws(IOException::class)
     override fun disconnect() {
-        if (isConnected()) {
-            mSocket?.close()
+        // Закрываем безусловно: сокет мог наполовину умереть, а недозакрытый течёт
+        val socket = mSocket ?: return
+        if (!socket.isClosed) {
+            socket.close()
         }
     }
 
@@ -145,8 +160,10 @@ class HyperionFlatBuffers(
     private fun receiveReply() {
         // Неблокирующее вычитывание ответов, чтобы сокет не забивался. Вызывается отдельно
         // и отправку кадров не задерживает.
-        val input = mSocket?.getInputStream() ?: return
         try {
+            // getInputStream на закрытом сокете бросает — это такой же штатный конец, как
+            // и ошибка чтения ниже
+            val input = mSocket?.getInputStream() ?: return
             while (input.available() >= 4) {
                 val header = ByteArray(4)
                 val read = input.read(header, 0, 4)

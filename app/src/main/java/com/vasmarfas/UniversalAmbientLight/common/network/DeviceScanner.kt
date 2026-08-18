@@ -18,7 +18,10 @@ class DeviceScanner(
 ) {
     private val ipsToTry: Array<String>
     private var lastTriedIndex = -1
-    private val foundDevices = mutableListOf<DeviceDetector.DeviceInfo>()
+    // Пишется потоком сканирования, а getFoundDevices() зовут с main по колбэку —
+    // без синхронизации копирование списка ловило бы ConcurrentModificationException
+    private val foundDevices =
+        java.util.Collections.synchronizedList(mutableListOf<DeviceDetector.DeviceInfo>())
     private val responsiveHosts = mutableSetOf<String>()
 
     init {
@@ -65,16 +68,19 @@ class DeviceScanner(
             // Перебор адресов подсети: недоступный хост — обычный результат сканирования.
         }
 
+        // Открытость UDP-порта отсюда не проверить (connect у DatagramSocket пакетов не
+        // шлёт) — это лишь отсев адресов, на которых не резолвится имя. Сокет закрываем
+        // на любом исходе, иначе на каждый хост подсети течёт дескриптор.
         try {
-            val datagramSocket = DatagramSocket()
-            datagramSocket.connect(InetAddress.getByName(host), 4048)
-            datagramSocket.close()
+            DatagramSocket().use { datagramSocket ->
+                datagramSocket.connect(InetAddress.getByName(host), 4048)
+            }
             hasWledPort = true
         } catch (e: Exception) {
             try {
-                val datagramSocket = DatagramSocket()
-                datagramSocket.connect(InetAddress.getByName(host), 19446)
-                datagramSocket.close()
+                DatagramSocket().use { datagramSocket ->
+                    datagramSocket.connect(InetAddress.getByName(host), 19446)
+                }
                 hasWledPort = true
             } catch (e: Exception) {
                 // Повторная проба второго порта WLED: недоступен — значит, устройства нет.
@@ -167,7 +173,10 @@ class DeviceScanner(
      * Возвращает все найденные устройства.
      */
     fun getFoundDevices(): List<DeviceDetector.DeviceInfo> {
-        return foundDevices.toList()
+        // toList() у синхронизированного списка сам по себе не атомарен
+        synchronized(foundDevices) {
+            return foundDevices.toList()
+        }
     }
 
     /**

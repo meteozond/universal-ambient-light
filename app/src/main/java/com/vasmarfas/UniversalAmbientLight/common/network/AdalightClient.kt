@@ -223,7 +223,15 @@ class AdalightClient(
 
     @Throws(IOException::class)
     override fun disconnect() {
+        // stop() обрывает недоигранный фейд в чёрный (переход плюс задержка вывода могут
+        // не уложиться в паузу перед disconnect), и лента осталась бы полугорящей —
+        // финальный чёрный кадр уходит в порт напрямую, мимо сглаживания. Мы на фоновом
+        // потоке гашения, блокирующая запись здесь допустима.
         mSmoothing.stop()
+        if (mConnected) {
+            val ledCount = LedDataExtractor.getLedCount(mContext)
+            sendLedData(Array(ledCount) { ColorRgb(0, 0, 0) })
+        }
         mConnected = false
         try {
             mPort?.close()
@@ -302,7 +310,7 @@ class AdalightClient(
 
         try {
             val packet = createPacket(mProtocol, leds)
-            maybeAutoThrottle(packet.size)
+            maybeAutoThrottle(packet.size, leds.size)
             port.write(packet, 1000)
 
             // Изредка пишем в лог для диагностики
@@ -326,16 +334,19 @@ class AdalightClient(
      * Это резко повышает стабильность при большом количестве LED (иначе данные начинают идти "без пауз",
      * Arduino теряет байты, и протокол рассинхронизируется).
      */
-    private fun maybeAutoThrottle(packetSizeBytes: Int) {
+    private fun maybeAutoThrottle(packetSizeBytes: Int, ledCount: Int) {
         if (packetSizeBytes <= 0) return
         // Пересчитываем только если меняется размер (например, при смене протокола или количества LED)
         if (packetSizeBytes == mLastAutoThrottlePacketSize) return
         mLastAutoThrottlePacketSize = packetSizeBytes
 
         // Приблизительно: 1 байт = 10 бит (8N1)
-        val maxBytesPerSecond = mBaudRate.toDouble() / 10.0
-        val maxHz = maxBytesPerSecond / packetSizeBytes.toDouble()
-        val safeHz = (maxHz * 0.90).toInt().coerceIn(1, 60)
+        val wireMs = packetSizeBytes * 10_000.0 / mBaudRate
+        // Пока прошивка переливает кадр в ленту, приём стоит: WS2812 требует держать
+        // прерывания выключенными ~30 мкс на светодиод, и байты следующего пакета,
+        // пришедшие в это окно, теряются. Резервируем окно явно, с запасом на цикл прошивки.
+        val showMs = ledCount * 0.03 + 2.0
+        val safeHz = (1000.0 / (wireMs + showMs)).toInt().coerceIn(1, 60)
 
         val desiredHz = minOf(mRequestedUpdateFrequency, safeHz)
         if (desiredHz != mEffectiveUpdateFrequency) {

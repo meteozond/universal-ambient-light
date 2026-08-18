@@ -67,72 +67,82 @@ class DeviceDetector {
                     try {
                         val url = URL("http://$host/json/info")
                         val connection = url.openConnection() as HttpURLConnection
-                        connection.connectTimeout = CONNECTION_TIMEOUT_MS
-                        connection.readTimeout = READ_TIMEOUT_MS
-                        connection.requestMethod = "GET"
-                        connection.setRequestProperty("User-Agent", "HyperionAndroid/1.0")
+                        try {
+                            connection.connectTimeout = CONNECTION_TIMEOUT_MS
+                            connection.readTimeout = READ_TIMEOUT_MS
+                            connection.requestMethod = "GET"
+                            connection.setRequestProperty("User-Agent", "HyperionAndroid/1.0")
 
-                        val responseCode = connection.responseCode
-                        Log.d(TAG, "WLED HTTP check at $host:80 - response code: $responseCode")
-                        if (responseCode == HttpURLConnection.HTTP_OK) {
-                            val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                            val response = reader.readText()
-                            reader.close()
-                            connection.disconnect()
+                            val responseCode = connection.responseCode
+                            Log.d(TAG, "WLED HTTP check at $host:80 - response code: $responseCode")
+                            if (responseCode == HttpURLConnection.HTTP_OK) {
+                                val reader =
+                                    BufferedReader(InputStreamReader(connection.inputStream))
+                                val response = reader.readText()
+                                reader.close()
 
-                            Log.d(TAG, "WLED HTTP response: ${response.take(200)}")
-                            val json = JSONObject(response)
-                            val name = json.optString("name", null)
+                                Log.d(TAG, "WLED HTTP response: ${response.take(200)}")
+                                val json = JSONObject(response)
+                                val name = json.optString("name", null)
 
-                            if (json.has("ver") || json.has("leds") || json.has("info")) {
-                                Log.d(TAG, "WLED detected at $host via HTTP API")
-                                return DeviceInfo(
-                                    host = host,
-                                    port = 19446, // Default to UDP Raw instead of DDP
-                                    type = DeviceType.WLED,
-                                    protocol = "udp_raw",
-                                    name = name ?: "WLED"
-                                )
-                            } else {
-                                Log.d(TAG, "HTTP response at $host doesn't look like WLED")
-                            }
-                        } else {
-                            Log.d(TAG, "HTTP response code $responseCode at $host:80")
-                            try {
-                                val altUrl = URL("http://$host/json")
-                                val altConnection = altUrl.openConnection() as HttpURLConnection
-                                altConnection.connectTimeout = CONNECTION_TIMEOUT_MS
-                                altConnection.readTimeout = READ_TIMEOUT_MS
-                                altConnection.requestMethod = "GET"
-                                altConnection.setRequestProperty(
-                                    "User-Agent",
-                                    "HyperionAndroid/1.0"
-                                )
-
-                                if (altConnection.responseCode == HttpURLConnection.HTTP_OK) {
-                                    val reader =
-                                        BufferedReader(InputStreamReader(altConnection.inputStream))
-                                    val response = reader.readText()
-                                    reader.close()
-                                    altConnection.disconnect()
-
-                                    val json = JSONObject(response)
-                                    val name = json.optString("name", null)
-
-                                    if (json.has("info") || json.has("state")) {
-                                        return DeviceInfo(
-                                            host = host,
-                                            port = 19446, // Default to UDP Raw instead of DDP
-                                            type = DeviceType.WLED,
-                                            protocol = "udp_raw",
-                                            name = name ?: "WLED"
-                                        )
-                                    }
+                                if (json.has("ver") || json.has("leds") || json.has("info")) {
+                                    Log.d(TAG, "WLED detected at $host via HTTP API")
+                                    return DeviceInfo(
+                                        host = host,
+                                        port = 19446, // Default to UDP Raw instead of DDP
+                                        type = DeviceType.WLED,
+                                        protocol = "udp_raw",
+                                        name = name ?: "WLED"
+                                    )
+                                } else {
+                                    Log.d(TAG, "HTTP response at $host doesn't look like WLED")
                                 }
-                            } catch (e: Exception) {
-                                // Опрос чужого устройства в сети: любой сбой означает лишь,
-                                // что этот адрес нам не подходит.
+                            } else {
+                                Log.d(TAG, "HTTP response code $responseCode at $host:80")
+                                try {
+                                    val altUrl = URL("http://$host/json")
+                                    val altConnection = altUrl.openConnection() as HttpURLConnection
+                                    try {
+                                        altConnection.connectTimeout = CONNECTION_TIMEOUT_MS
+                                        altConnection.readTimeout = READ_TIMEOUT_MS
+                                        altConnection.requestMethod = "GET"
+                                        altConnection.setRequestProperty(
+                                            "User-Agent",
+                                            "HyperionAndroid/1.0"
+                                        )
+
+                                        if (altConnection.responseCode == HttpURLConnection.HTTP_OK) {
+                                            val reader = BufferedReader(
+                                                InputStreamReader(altConnection.inputStream)
+                                            )
+                                            val response = reader.readText()
+                                            reader.close()
+
+                                            val json = JSONObject(response)
+                                            val name = json.optString("name", null)
+
+                                            if (json.has("info") || json.has("state")) {
+                                                return DeviceInfo(
+                                                    host = host,
+                                                    port = 19446, // Default to UDP Raw instead of DDP
+                                                    type = DeviceType.WLED,
+                                                    protocol = "udp_raw",
+                                                    name = name ?: "WLED"
+                                                )
+                                            }
+                                        }
+                                    } finally {
+                                        // Скан проходит сотни адресов подряд — соединение
+                                        // закрываем на каждой ветке, не только на успешной
+                                        altConnection.disconnect()
+                                    }
+                                } catch (e: Exception) {
+                                    // Опрос чужого устройства в сети: любой сбой означает лишь,
+                                    // что этот адрес нам не подходит.
+                                }
                             }
+                        } finally {
+                            connection.disconnect()
                         }
                     } catch (e: Exception) {
                         val errorMsg = e.message ?: "Unknown error"

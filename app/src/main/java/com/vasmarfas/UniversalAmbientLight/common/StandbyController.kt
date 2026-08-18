@@ -117,8 +117,9 @@ internal class StandbyController(
         private const val TAG = "StandbyController"
 
         // Пауза перед тем, как замолчать по SCREEN_OFF: покрывает пять чёрных кадров (~500 мс)
-        // плюс время сглаживания и задержку вывода, чтобы лента точно успела погаснуть.
-        private const val PAUSE_DELAY_MS = 1500L
+        // плюс худшие ручные настройки сглаживания — до 1000 мс перехода и до 1000 мс
+        // задержки вывода, — чтобы лента точно успела погаснуть.
+        private const val PAUSE_DELAY_MS = 2600L
 
         private const val WAKE_LOCK_TIMEOUT_MS = 60 * 60 * 1000L
     }

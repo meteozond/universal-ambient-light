@@ -41,11 +41,17 @@ data class LedLayout(
 
     /**
      * Сколько светодиодов ждёт контроллер. Стороны, снятые с ленты (`not_installed`),
-     * здесь не вычитаются: контроллеру всё равно уходит полная лента, просто снятые
-     * стороны приходят чёрными.
+     * не считаются — их светодиодов физически нет, и разбор кадра их тоже выбрасывает;
+     * выключенные (`disabled`) стороны остаются в счёте и приходят чёрными. Расхождение
+     * с разбором кадра здесь ломало бы сглаживание: clear() и живые кадры имели бы
+     * разную длину.
      */
     fun ledCount(): Int {
-        var total = topLed + rightLed + bottomLed + leftLed
+        var total = 0
+        if (sideTop != "not_installed") total += topLed
+        if (sideRight != "not_installed") total += rightLed
+        if (sideBottom != "not_installed") total += bottomLed
+        if (sideLeft != "not_installed") total += leftLed
         if (total <= 0) total = 2 * (xLed + yLed)
         return max(total, 1)
     }

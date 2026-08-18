@@ -54,16 +54,50 @@ class HyperionThread(
     private val mKeepAliveExecutor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor()
 
+    private val mRecovering = AtomicBoolean(false)
+
+    @Volatile
+    private var mLastRecoveryAttemptMs = 0L
+
     private class FrameData(val data: ByteArray, val width: Int, val height: Int)
+
+    // Кольцо из трёх буферов под входящие кадры: энкодеры переиспользуют свой массив и
+    // перезапишут его следующим кадром раньше, чем executor дослал текущий, — без копии
+    // клиенту достаётся рваный кадр. Три слота, потому что в полёте может быть кадр в
+    // отправке плюс отложенный, и писать надо в третий.
+    private val mFrameRing = arrayOfNulls<ByteArray>(3)
+    private var mFrameRingIndex = 0
+
+    // Слот кольца переживает и три кадра, если отправка застряла на mSendLock (keepalive
+    // висит в записи в сокет) — перед отправкой кадр перекладывается в собственный буфер,
+    // который поток захвата не трогает
+    private var mSendBuffer: ByteArray? = null
 
     private val mListener = object : HyperionThreadListener {
         override fun sendFrame(data: ByteArray, width: Int, height: Int) {
             if (mStandbyPaused.get()) return
             val client = mClient.get()
-            if (client == null || !client.isConnected()) return
+            if (client == null || !client.isConnected()) {
+                // Клиент умирает молча: у Adalight после standby ТВ хост переоткрывает USB,
+                // ошибка записи гасит isConnected без исключения наружу, и без этой ветки
+                // лента не оживала бы до ручного перезапуска (issue #41). Приходящие кадры
+                // и есть сигнал, что захват жив и соединение пора поднимать заново.
+                scheduleClientRecovery()
+                return
+            }
             if (mExecutor.isShutdown) return
 
-            mPendingFrame = FrameData(data, width, height)
+            // sendFrame зовёт единственный поток захвата активного энкодера, поэтому
+            // кольцо не нуждается в блокировке
+            mFrameRingIndex = (mFrameRingIndex + 1) % mFrameRing.size
+            var slot = mFrameRing[mFrameRingIndex]
+            if (slot == null || slot.size != data.size) {
+                slot = ByteArray(data.size)
+                mFrameRing[mFrameRingIndex] = slot
+            }
+            System.arraycopy(data, 0, slot, 0, data.size)
+
+            mPendingFrame = FrameData(slot, width, height)
             val pending = mPendingTask
             if (pending != null && !pending.isDone) {
                 pending.cancel(false)
@@ -82,21 +116,32 @@ class HyperionThread(
 
             if (frame == null || client == null || !client.isConnected()) return
 
+            // Снимок до входа в замок: пока эта задача ждёт mSendLock, поток захвата может
+            // обернуть кольцо и переписать слот кадра
+            var buffer = mSendBuffer
+            if (buffer == null || buffer.size != frame.data.size) {
+                buffer = ByteArray(frame.data.size)
+                mSendBuffer = buffer
+            }
+            System.arraycopy(frame.data, 0, buffer, 0, frame.data.size)
+
             try {
                 synchronized(mSendLock) {
                     client.setImage(
-                        frame.data,
+                        buffer,
                         frame.width,
                         frame.height,
                         mPriority,
                         FRAME_DURATION
                     )
-                }
-                // Держим стабильную копию для повторов keepalive.
-                mLastSentFrame = FrameData(frame.data.copyOf(), frame.width, frame.height)
+                    // Держим стабильную копию для повторов keepalive.
+                    mLastSentFrame = FrameData(buffer.copyOf(), frame.width, frame.height)
 
-                if (client is HyperionFlatBuffers) {
-                    client.cleanReplies()
+                    if (client is HyperionFlatBuffers) {
+                        // Под тем же замком, что и keepalive: два читателя одного сокета
+                        // поделили бы заголовок ответа и рассинхронизировали поток
+                        client.cleanReplies()
+                    }
                 }
             } catch (e: IOException) {
                 handleError(e)
@@ -107,7 +152,15 @@ class HyperionThread(
             val client = mClient.get()
             if (client != null && client.isConnected()) {
                 try {
-                    client.clear(mPriority)
+                    // Под тем же замком, что и setImage: у Hyperion это один TCP-поток, и
+                    // clear() из потока гашения вперемешку с кадром из executor'а дал бы
+                    // битый length-prefixed поток и разрыв соединения
+                    synchronized(mSendLock) {
+                        client.clear(mPriority)
+                        // Иначе keepalive через секунду заново зажёг бы ленту последним
+                        // кадром — и она горела бы стоп-кадром весь простой
+                        mLastSentFrame = null
+                    }
                 } catch (e: IOException) {
                     mCallback.onConnectionError(e.hashCode(), e.message)
                 }
@@ -278,15 +331,93 @@ class HyperionThread(
         // Не пересоздавать клиент во сне: для Adalight новое открытие порта сбрасывает Arduino.
         if (mReconnectEnabled.get() && mConnected.get() && !mStandbyPaused.get()) {
             sleepSafe(mReconnectDelayMs)
+            // Сон прерван — это shutdownNow при остановке, пересоздавать клиент уже нельзя
+            if (!mReconnectEnabled.get()) return
             try {
                 val newClient = createClient()
 
                 if (newClient != null && newClient.isConnected()) {
-                    mClient.set(newClient)
+                    installRecoveredClient(newClient)
                 }
             } catch (ignored: IOException) {
             }
         }
+    }
+
+    /**
+     * Ставит пересозданный клиент на место умершего. Если за время подключения сервис
+     * успели остановить (disconnect() гасит executor), свежий клиент не подключается,
+     * а закрывается — иначе он пережил бы остановку и держал порт или сокет до конца
+     * процесса.
+     */
+    private fun installRecoveredClient(newClient: HyperionClient) {
+        if (mExecutor.isShutdown) {
+            try {
+                newClient.disconnect()
+            } catch (ignored: IOException) {
+            }
+            return
+        }
+        val old = mClient.getAndSet(newClient)
+        if (old != null && old !== newClient) {
+            // Сокет прежнего клиента иначе остаётся открытым до конца процесса
+            try {
+                old.disconnect()
+            } catch (ignored: IOException) {
+            }
+        }
+        if (mExecutor.isShutdown) {
+            // Остановка пришла между проверкой и установкой — забираем клиент обратно
+            val stale = mClient.getAndSet(null)
+            if (stale != null) {
+                try {
+                    stale.disconnect()
+                } catch (ignored: IOException) {
+                }
+            }
+        }
+    }
+
+    /**
+     * Пересоздаёт клиент после молчаливой смерти соединения. Попытки идут не чаще
+     * mReconnectDelayMs и только после первого успешного подключения — гонку с начальным
+     * циклом connect() отсекает mConnected. Отдельный поток, потому что открытие порта
+     * или сокета блокирует, а зовут нас из потока захвата.
+     */
+    private fun scheduleClientRecovery() {
+        if (!mReconnectEnabled.get() || !mConnected.get() || mStandbyPaused.get()) return
+        if (mExecutor.isShutdown) return
+        if (System.currentTimeMillis() - mLastRecoveryAttemptMs < mReconnectDelayMs) return
+        if (!mRecovering.compareAndSet(false, true)) return
+        Thread({
+            try {
+                mLastRecoveryAttemptMs = System.currentTimeMillis()
+                val stale = mClient.get()
+                if (stale != null && stale.isConnected()) return@Thread
+                if (stale != null) {
+                    // Мёртвый Adalight-клиент держит USB-устройство занятым — освобождаем
+                    // до открытия нового
+                    try {
+                        stale.disconnect()
+                    } catch (ignored: IOException) {
+                    }
+                }
+                try {
+                    val newClient = createClient()
+                    if (newClient != null && newClient.isConnected()) {
+                        installRecoveredClient(newClient)
+                        if (mClient.get() === newClient) {
+                            Log.i(TAG, "Recovered $mConnectionType connection")
+                            mCallback.onConnected()
+                        }
+                    }
+                } catch (e: IOException) {
+                    mCallback.onConnectionError(e.hashCode(), e.message)
+                }
+            } finally {
+                mRecovering.set(false)
+            }
+        }, "$TAG-recovery").apply { isDaemon = true }.start()
     }
 
     private fun sleepSafe(ms: Long) {

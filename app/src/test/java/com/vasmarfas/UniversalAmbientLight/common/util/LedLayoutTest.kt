@@ -23,8 +23,16 @@ class LedLayoutTest {
     }
 
     @Test
-    fun `sides taken off the strip still count towards the controller`() {
+    fun `a side taken off the strip is excluded from the count`() {
+        // Разбор кадра выбрасывает снятые стороны целиком — счётчик обязан совпадать,
+        // иначе clear() и живые кадры расходятся по длине
         val layout = LedLayout(topLed = 10, bottomLed = 10, sideBottom = "not_installed")
+        assertEquals(10, layout.ledCount())
+    }
+
+    @Test
+    fun `a disabled side still counts towards the controller`() {
+        val layout = LedLayout(topLed = 10, bottomLed = 10, sideBottom = "disabled")
         assertEquals(20, layout.ledCount())
     }
 }

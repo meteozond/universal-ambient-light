@@ -56,7 +56,9 @@ class NetworkScanner {
                 return 1f
             }
 
-            return lastTriedIndex / ipsToTry.size.toFloat()
+            // lastTriedIndex начинается с -1 и на последнем адресе равен size-1:
+            // без +1 прогресс стартовал бы с отрицательного и не доходил до 1.0
+            return (lastTriedIndex + 1) / ipsToTry.size.toFloat()
         }
 
     /** True, пока проверены не все адреса
@@ -126,6 +128,10 @@ class NetworkScanner {
                     val ipParts =
                         localIpV4Address.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }
                             .toTypedArray()
+
+                    // Один нестандартный адрес не должен ронять скан всех интерфейсов:
+                    // внешний catch вернул бы пустой список целиком
+                    if (ipParts.size != 4 || ipParts[3].toIntOrNull() == null) continue
 
                     val ipPrefix = ipParts[0] + "." + ipParts[1] + "." + ipParts[2] + "."
                     for (i in 1..254) {

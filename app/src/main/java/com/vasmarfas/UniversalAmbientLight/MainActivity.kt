@@ -130,11 +130,15 @@ class MainActivity : ComponentActivity() {
             }
 
             // Диалог и toast откладываем: onReceive выполняется на главном потоке, и показ
-            // окна прямо здесь задерживает доставку остальных широковещаний.
+            // окна прямо здесь задерживает доставку остальных широковещаний. К моменту
+            // выполнения активити могла начать закрываться — показ диалога на ней дал бы
+            // BadTokenException.
             if (tclBlocked && !mTclWarningShown) {
                 mTclWarningShown = true
                 window.decorView.post {
-                    TclBypass.showTclHelpDialog(this@MainActivity) { requestScreenCapture() }
+                    if (!isFinishing && !isDestroyed) {
+                        TclBypass.showTclHelpDialog(this@MainActivity) { requestScreenCapture() }
+                    }
                 }
             } else if (error != null && !QuickTileService.isListening) {
                 val errorMessage = error
@@ -163,7 +167,7 @@ class MainActivity : ComponentActivity() {
         AnalyticsHelper.logAppLaunched(this)
 
         mMediaProjectionManager =
-            getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            getSystemService(MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
 
         // Проверку обновлений Play откладываем на следующий цикл главного цикла — onCreate на ТВ должен быть дешёвым.
         appUpdateManager = AppUpdateManagerFactory.create(this)
@@ -266,6 +270,9 @@ class MainActivity : ComponentActivity() {
         appUpdateManager
             .appUpdateInfo
             .addOnSuccessListener { appUpdateInfo ->
+                // Ответ Play Core мог прийти после закрытия активити — запуск IntentSender
+                // на мёртвом экземпляре бросает IllegalStateException
+                if (isFinishing || isDestroyed) return@addOnSuccessListener
                 if (appUpdateInfo.updateAvailability()
                     == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
                 ) {
@@ -601,7 +608,11 @@ class MainActivity : ComponentActivity() {
             } else {
                 AnalyticsHelper.logPermissionDenied(this, "SYSTEM_ALERT_WINDOW")
             }
-            window.decorView.postDelayed({ requestScreenCapture() }, 500)
+            // За полсекунды активити могут закрыть или пересоздать — колбэк на мёртвом
+            // экземпляре запустил бы диалог с BadTokenException
+            window.decorView.postDelayed({
+                if (!isFinishing && !isDestroyed) requestScreenCapture()
+            }, 500)
         }
     }
 
@@ -663,6 +674,9 @@ class MainActivity : ComponentActivity() {
     private fun checkForUpdates() {
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
+            // Задача Play Core переживает активити: ответ на медленной сети приходит уже
+            // после пересоздания, и запуск IntentSender на мёртвом экземпляре теряет результат
+            if (isFinishing || isDestroyed) return@addOnSuccessListener
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
                 // Здесь применяется немедленное обновление; для гибкого нужно передать
                 // AppUpdateType.FLEXIBLE.

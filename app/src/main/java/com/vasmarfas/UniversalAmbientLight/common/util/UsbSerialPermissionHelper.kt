@@ -8,9 +8,12 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.vasmarfas.UniversalAmbientLight.R
 
 /**
  * Запрашивает разрешение на первое (или конкретное) USB-последовательное устройство.
@@ -52,7 +55,7 @@ object UsbSerialPermissionHelper {
      * Обеспечивает разрешение на USB-последовательное устройство Adalight.
      *
      * Если разрешение уже выдано, [onReady] вызывается сразу; иначе разрешение запрашивается,
-     * и [onReady] вызывается после согласия пользователя.
+     * и [onReady] вызывается после согласия пользователя. Колбэки приходят на главном потоке.
      *
      * @return true, если всё уже готово, и false, если запрос только начат.
      */
@@ -68,7 +71,7 @@ object UsbSerialPermissionHelper {
         if (usbManager == null) {
             if (showToast) Toast.makeText(
                 context,
-                "USB service is not available on this device",
+                R.string.usb_service_unavailable,
                 Toast.LENGTH_LONG
             ).show()
             onDenied?.invoke()
@@ -79,7 +82,7 @@ object UsbSerialPermissionHelper {
         if (target == null) {
             if (showToast) Toast.makeText(
                 context,
-                "No USB serial devices found. Connect your device via USB OTG",
+                R.string.usb_no_serial_devices,
                 Toast.LENGTH_LONG
             ).show()
             onDenied?.invoke()
@@ -97,26 +100,82 @@ object UsbSerialPermissionHelper {
             return true
         }
 
-        // Сначала пробуем root, только потом системный диалог; `su` блокирует, поэтому асинхронно.
-        if (UsbRootPermissionHelper.isRootAvailable()) {
-            if (!force && lastRequestedDeviceId == target.deviceId) return false
-            lastRequestedDeviceId = target.deviceId
-
-            UsbRootPermissionHelper.grantPermissionViaRootAsync(context) { rootGranted ->
-                if (rootGranted && usbManager.hasPermission(target)) {
-                    onReady()
-                } else {
-                    // Снимаем метку ограничения частоты, чтобы следующий запуск по кнопке смог спросить.
-                    lastRequestedDeviceId = null
-                    onDenied?.invoke()
+        // Проверка root запускает `su` и блокирует до 2 секунд, а сюда приходят с главного
+        // потока (onReceive, onCreate активити) — при непрогретом кэше уводим её в фон.
+        val cachedRoot = UsbRootPermissionHelper.isRootAvailableCached()
+        if (cachedRoot == null) {
+            Thread({
+                val rootAvailable = UsbRootPermissionHelper.isRootAvailable()
+                Handler(Looper.getMainLooper()).post {
+                    proceedWithPermission(
+                        context, usbManager, target, rootAvailable,
+                        onReady, onDenied, showToast, force
+                    )
                 }
-            }
+            }, "UsbRootCheck").apply { isDaemon = true }.start()
             return false
         }
 
-        // Не показываем один и тот же запрос по кругу
+        proceedWithPermission(
+            context, usbManager, target, cachedRoot, onReady, onDenied, showToast, force
+        )
+        return false
+    }
+
+    private fun proceedWithPermission(
+        context: Context,
+        usbManager: UsbManager,
+        target: UsbDevice,
+        rootAvailable: Boolean,
+        onReady: () -> Unit,
+        onDenied: (() -> Unit)?,
+        showToast: Boolean,
+        force: Boolean,
+    ) {
+        // Сначала пробуем root, только потом системный диалог; `su` блокирует, поэтому асинхронно.
+        if (rootAvailable) {
+            if (!force && lastRequestedDeviceId == target.deviceId) {
+                // Запрос уже был и не удался: молчаливый выход без колбэка подвесил бы
+                // вызывающих, которые ждут любого из двух исходов (BootActivity ждёт
+                // finish() именно здесь)
+                onDenied?.invoke()
+                return
+            }
+            lastRequestedDeviceId = target.deviceId
+
+            UsbRootPermissionHelper.grantPermissionViaRootAsync(context) { rootGranted ->
+                Handler(Looper.getMainLooper()).post {
+                    if (rootGranted && usbManager.hasPermission(target)) {
+                        onReady()
+                    } else {
+                        // Root не помог (SELinux, урезанный su) — падаем на системный
+                        // диалог, иначе пользователь с root вообще не увидел бы запроса
+                        lastRequestedDeviceId = null
+                        requestViaSystemDialog(
+                            context, usbManager, target, onReady, onDenied, showToast, force
+                        )
+                    }
+                }
+            }
+            return
+        }
+
+        requestViaSystemDialog(context, usbManager, target, onReady, onDenied, showToast, force)
+    }
+
+    private fun requestViaSystemDialog(
+        context: Context,
+        usbManager: UsbManager,
+        target: UsbDevice,
+        onReady: () -> Unit,
+        onDenied: (() -> Unit)?,
+        showToast: Boolean,
+        force: Boolean,
+    ) {
+        // Не показываем один и тот же запрос по кругу; вызывающему это «отказ», а не тишина
         if (!force && lastRequestedDeviceId == target.deviceId) {
-            return false
+            onDenied?.invoke()
+            return
         }
         lastRequestedDeviceId = target.deviceId
 
@@ -165,7 +224,7 @@ object UsbSerialPermissionHelper {
                     if (showToast) {
                         Toast.makeText(
                             ctx,
-                            "USB device permission denied. Please allow USB access.",
+                            R.string.usb_permission_denied_toast,
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -174,9 +233,11 @@ object UsbSerialPermissionHelper {
             }
         }
 
-        // Приёмник регистрируем как неэкспортируемый
+        // Приёмник регистрируем как неэкспортируемый и на контексте приложения: активити
+        // могут уничтожить, пока системный диалог USB открыт, и приёмник на её контексте
+        // утёк бы вместе с ней (IntentReceiverLeaked)
         ContextCompat.registerReceiver(
-            context,
+            context.applicationContext,
             receiver,
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
@@ -186,15 +247,18 @@ object UsbSerialPermissionHelper {
             usbManager.requestPermission(target, permissionIntent)
             if (showToast) Toast.makeText(
                 context,
-                "Подтвердите доступ к USB устройству",
+                R.string.usb_permission_prompt,
                 Toast.LENGTH_LONG
             ).show()
         } catch (e: Exception) {
             Log.e(TAG, "requestPermission failed: ${e.message}", e)
+            // Диалог не открылся — широковещания не будет, приёмник снимаем сами,
+            // иначе он утёк бы вместе с захваченными колбэками
+            try {
+                context.applicationContext.unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
             onDenied?.invoke()
         }
-
-        return false
     }
 }
-

@@ -70,13 +70,16 @@ class QuickTileService : TileService() {
     }
 
     override fun onStopListening() {
-        super.onTileRemoved()
+        super.onStopListening()
         mHandle.postDelayed(unregisterReceiverRunner, REMOVE_LISTENER_DELAY.toLong())
     }
 
     override fun onDestroy() {
+        // Отложенный runner мёртвого экземпляра иначе сбросил бы флаг у нового, а приёмник
+        // утёк бы вместе с сервисом (has leaked IntentReceiver)
+        mHandle.removeCallbacksAndMessages(null)
+        unregisterReceiverRunner.run()
         super.onDestroy()
-        mIsListening = false
     }
 
     override fun onClick() {

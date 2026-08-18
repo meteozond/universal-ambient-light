@@ -116,21 +116,18 @@ class ToggleActivity : AppCompatActivity() {
         const val REQUEST_MEDIA_PROJECTION = 1
         private const val TAG = "ToggleActivity"
 
+        // Запуск сервиса — через обёртку BootActivity: на Android 12+ голый
+        // startForegroundService из onActivityResult падает с
+        // ForegroundServiceStartNotAllowedException, а там этот случай уже обработан.
         private fun startScreenRecorder(context: Context, resultCode: Int, data: Intent) {
-            val intent = Intent(context, ScreenGrabberService::class.java)
-            intent.action = ScreenGrabberService.ACTION_START
-            intent.putExtra(ScreenGrabberService.EXTRA_RESULT_CODE, resultCode)
-            intent.putExtras(data)
-            context.startForegroundService(intent)
+            BootActivity.startScreenRecorder(context, resultCode, data)
         }
 
         // Запускает сервис сразу, без токена MediaProjection — для альтернативных способов
         // захвата (screencap, adb, accessibility и прочих) на устройствах, где системного
         // диалога разрешения MediaProjection нет.
         private fun startScreenRecorderDirect(context: Context) {
-            val intent = Intent(context, ScreenGrabberService::class.java)
-            intent.action = ScreenGrabberService.ACTION_START
-            context.startForegroundService(intent)
+            BootActivity.startAlternativeRecorder(context)
         }
     }
 }

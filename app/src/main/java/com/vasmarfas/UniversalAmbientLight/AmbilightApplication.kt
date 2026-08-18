@@ -2,10 +2,12 @@ package com.vasmarfas.UniversalAmbientLight
 
 import android.app.Application
 import android.content.Context
+import android.os.DeadSystemException
 import android.util.Log
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.LocaleHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
+import com.vasmarfas.UniversalAmbientLight.common.util.UsbRootPermissionHelper
 
 class AmbilightApplication : Application() {
     override fun attachBaseContext(base: Context) {
@@ -27,6 +29,9 @@ class AmbilightApplication : Application() {
         Thread { AnalyticsHelper.initializeUserProperties(this) }
             .apply { name = "analytics-init"; isDaemon = true }
             .start()
+        // Проверка root (запуск `su`, до 2 секунд) иначе случилась бы синхронно на главном
+        // потоке первого же BootActivity/ToggleActivity — на старте ТВ это вклад в ANR.
+        UsbRootPermissionHelper.warmUpAsync()
     }
 
     /**
@@ -82,6 +87,8 @@ class AmbilightApplication : Application() {
                 isMediaCodecDisplayListenerNpe(throwable) -> "MediaCodec.onDisplayChanged NPE"
                 isReportSizeConfigurationsBug(throwable) -> "ActivityThread.reportSizeConfigurations race"
                 isForegroundServiceTimeout(throwable) -> "ForegroundServiceDidNotStartInTime (OEM blocked FGS)"
+                isDeadSystemException(throwable) -> "DeadSystemException (system_server died)"
+                isProfileVerifierFirmwareBug(throwable) -> "ProfileVerifier NoSuchMethodError (broken framework.jar)"
                 else -> null
             }
             if (reason != null) {
@@ -131,6 +138,31 @@ class AmbilightApplication : Application() {
     private fun isForegroundServiceTimeout(t: Throwable): Boolean {
         if (!t.javaClass.name.contains("ForegroundServiceDidNotStartInTimeException")) return false
         return t.message?.contains(packageName) == true
+    }
+
+    /**
+     * system_server умер (перезагрузка, падение системы): любой биндер-вызов начинает
+     * бросать DeadSystemException, в том числе из колбэков, нам не принадлежащих. Процесс
+     * всё равно будет убит вместе с системой — падать с крашем в отчётах незачем.
+     */
+    private fun isDeadSystemException(t: Throwable): Boolean {
+        var cause: Throwable? = t
+        while (cause != null) {
+            if (cause is DeadSystemException) return true
+            cause = cause.cause
+        }
+        return false
+    }
+
+    /**
+     * NoSuchMethodError из фонового ProfileVerifier: встречается на прошивках, где
+     * framework.jar не содержит API, положенных заявленной версии Android (например,
+     * PackageInfoFlags.of на «Android 13»). Это диагностика профилей ART, на работу
+     * приложения она не влияет — а починить чужую прошивку мы не можем.
+     */
+    private fun isProfileVerifierFirmwareBug(t: Throwable): Boolean {
+        if (t !is NoSuchMethodError) return false
+        return t.stackTrace.any { it.className.startsWith("androidx.profileinstaller.ProfileVerifier") }
     }
 
     private fun migratePreferences() {

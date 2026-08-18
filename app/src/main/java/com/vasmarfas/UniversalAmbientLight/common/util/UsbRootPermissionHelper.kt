@@ -27,12 +27,35 @@ object UsbRootPermissionHelper {
     /**
      * Проверяет, доступен ли root (su) на этом устройстве.
      * Результат кэшируется на время жизни процесса.
+     *
+     * Вызывается в том числе с главного потока (BootActivity, ToggleActivity), поэтому
+     * дорогой запуск `su` делается только там, где бинарник вообще есть: на обычной
+     * прошивке проверка сводится к нескольким stat(). Кэш дополнительно прогревается
+     * из фонового потока приложения — см. [warmUpAsync].
      */
     fun isRootAvailable(): Boolean {
         cachedRootAvailable?.let { return it }
-        val result = checkRootAvailable()
+        val result = hasSuBinary() && checkRootAvailable()
         cachedRootAvailable = result
         return result
+    }
+
+    /** Прогревает кэш проверки root вне главного потока — до 2 секунд на запуск `su`. */
+    fun warmUpAsync() {
+        if (cachedRootAvailable != null) return
+        Thread { isRootAvailable() }.apply { isDaemon = true; name = "UsbRootCheck" }.start()
+    }
+
+    /** Кэшированный результат без запуска `su`: null, пока проверка ещё не выполнялась. */
+    fun isRootAvailableCached(): Boolean? = cachedRootAvailable
+
+    private fun hasSuBinary(): Boolean = SU_PATHS.any {
+        try {
+            java.io.File(it).exists()
+        } catch (_: Exception) {
+            // SecurityException от кастомного SELinux-профиля читаем как «бинарника нет».
+            false
+        }
     }
 
     private fun checkRootAvailable(): Boolean {
@@ -139,4 +162,15 @@ object UsbRootPermissionHelper {
     }
 
     private const val GRANT_TIMEOUT_SEC = 4L
+
+    // Типовые места su: Magisk (бинд-маунт в /system/bin и /sbin), классические root-прошивки.
+    private val SU_PATHS = arrayOf(
+        "/system/bin/su",
+        "/system/xbin/su",
+        "/sbin/su",
+        "/su/bin/su",
+        "/vendor/bin/su",
+        "/odm/bin/su",
+        "/product/bin/su",
+    )
 }

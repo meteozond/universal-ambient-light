@@ -283,11 +283,13 @@
     <item>Hyperion</item>
     <item>WLED</item>
     <item>Adalight</item>
+    <item>Home Assistant</item>
   </string-array>
   <string-array name="pref_list_connection_type_values">
     <item>hyperion</item>
     <item>wled</item>
     <item>adalight</item>
+    <item>homeassistant</item>
   </string-array>
   <string name="pref_title_adalight_baudrate">Скорость Adalight</string>
   <string-array name="pref_list_adalight_baudrate">
@@ -377,6 +379,70 @@
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
   <string name="pref_title_wled_brightness">Яркость WLED</string>
   <string name="pref_summary_wled_brightness_max">255 — цвета уходят без изменений</string>
+  <!-- Home Assistant -->
+  <string name="pref_title_ha_token">Токен доступа</string>
+  <string name="pref_summary_ha_token_empty">Долгоживущий токен из профиля Home Assistant → Безопасность</string>
+  <string name="pref_summary_ha_token_set">Токен сохранён</string>
+  <string name="pref_title_ha_lamps">Лампы и зоны</string>
+  <string name="pref_summary_ha_lamps_empty">Лампы не настроены</string>
+  <string name="pref_summary_ha_lamps_count">Настроено ламп: %1$d</string>
+  <string name="pref_title_ha_update_interval">Частота обновлений</string>
+  <string-array name="pref_list_ha_update_interval">
+    <item>10 раз в секунду (100 мс)</item>
+    <item>150 мс</item>
+    <item>4 раза в секунду (250 мс)</item>
+    <item>2 раза в секунду (500 мс)</item>
+    <item>1 раз в секунду</item>
+    <item>Раз в 2 секунды</item>
+    <item>Раз в 5 секунд</item>
+  </string-array>
+  <string name="pref_title_ha_change_threshold">Порог изменения цвета</string>
+  <string name="pref_summary_ha_change_threshold">0–255. Обновление уходит, только если цвет зоны изменился не меньше чем на столько</string>
+  <string name="pref_title_ha_transition">Плавность перехода</string>
+  <string-array name="pref_list_ha_transition">
+    <item>Выкл</item>
+    <item>150 мс</item>
+    <item>300 мс</item>
+    <item>500 мс</item>
+    <item>1 секунда</item>
+    <item>2 секунды</item>
+  </string-array>
+  <string name="pref_title_ha_brightness_mode">Яркость</string>
+  <string-array name="pref_list_ha_brightness_mode">
+    <item>Следует за картинкой</item>
+    <item>Не менять</item>
+  </string-array>
+  <string name="pref_title_ha_brightness">Предел яркости</string>
+  <string name="pref_summary_ha_brightness_max">255 — полная яркость лампы</string>
+  <string name="pref_title_ha_dark_off">Гасить на тёмных сценах</string>
+  <string name="pref_summary_ha_dark_off">Лампы гаснут, когда зона темнее порога, и включаются вместе с картинкой</string>
+  <string name="pref_title_ha_dark_threshold">Порог темноты</string>
+  <string name="pref_title_ha_turn_off_lights">Гасить лампы при остановке</string>
+  <string name="pref_summary_ha_turn_off_lights">Выключать лампы при остановке захвата и при выключении экрана ТВ</string>
+  <string name="ha_lamps_dialog_title">Лампы Home Assistant</string>
+  <string name="ha_lamps_loading">Загружаю список ламп…</string>
+  <string name="ha_lamps_error">Не удалось подключиться к Home Assistant: %1$s</string>
+  <string name="ha_lamps_empty">Ламп не найдено</string>
+  <string name="ha_lamps_hint">Сначала укажите хост и токен доступа, затем выберите зону для каждой лампы</string>
+  <string name="ha_zone_none">Не использовать</string>
+  <string name="ha_zone_average">Средний цвет экрана</string>
+  <string name="ha_zone_left">Левый край</string>
+  <string name="ha_zone_right">Правый край</string>
+  <string name="ha_zone_top">Верх</string>
+  <string name="ha_zone_bottom">Низ</string>
+  <string name="ha_zone_top_left">Верхний левый угол</string>
+  <string name="ha_zone_top_right">Верхний правый угол</string>
+  <string name="ha_zone_bottom_left">Нижний левый угол</string>
+  <string name="ha_zone_bottom_right">Нижний правый угол</string>
+  <string name="ha_lamps_lamp_missing">Сейчас не видна в этом Home Assistant</string>
+  <string name="action_save">Сохранить</string>
+  <string name="error_ha_token_missing">Не задан токен доступа Home Assistant. Откройте Настройки → Подключение → Токен доступа</string>
+  <string name="error_ha_no_lamps">Ни одна лампа Home Assistant не привязана к зоне. Откройте Настройки → Подключение → Лампы и зоны</string>
+
+  <!-- Второе, дополнительное подключение к Home Assistant -->
+  <string name="pref_group_ha_secondary">Дополнительный вывод на Home Assistant</string>
+  <string name="pref_title_ha2_enabled">Также управлять лампами Home Assistant</string>
+  <string name="pref_summary_ha2_enabled">Работает вместе с основным подключением выше — например, основной вывод на WLED, а по бокам ещё и лампы Home Assistant</string>
 
   <!-- Adalight advanced settings -->
   <string name="pref_title_adalight_protocol">Протокол Adalight</string>

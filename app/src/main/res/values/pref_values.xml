@@ -100,6 +100,72 @@
     <string name="pref_key_adalight_protocol" translatable="false">pref_key_adalight_protocol</string>
     <string name="pref_default_adalight_protocol" translatable="false">ada</string>
 
+    <!-- Home Assistant -->
+    <string name="pref_key_ha_token" translatable="false">pref_key_ha_token</string>
+
+    <string name="pref_key_ha_lamps" translatable="false">pref_key_ha_lamps</string>
+
+    <string name="pref_key_ha_update_interval" translatable="false">pref_key_ha_update_interval</string>
+    <integer name="pref_default_ha_update_interval" translatable="false">500</integer>
+
+    <string name="pref_key_ha_change_threshold" translatable="false">pref_key_ha_change_threshold</string>
+    <integer name="pref_default_ha_change_threshold" translatable="false">10</integer>
+
+    <string name="pref_key_ha_transition" translatable="false">pref_key_ha_transition</string>
+    <integer name="pref_default_ha_transition" translatable="false">300</integer>
+
+    <string name="pref_key_ha_brightness_mode" translatable="false">pref_key_ha_brightness_mode</string>
+    <string name="pref_default_ha_brightness_mode" translatable="false">screen</string>
+
+    <string name="pref_key_ha_brightness" translatable="false">pref_key_ha_brightness</string>
+    <integer name="pref_default_ha_brightness" translatable="false">255</integer>
+
+    <string name="pref_key_ha_dark_off" translatable="false">pref_key_ha_dark_off</string>
+    <bool name="pref_default_ha_dark_off" translatable="false">true</bool>
+
+    <string name="pref_key_ha_dark_threshold" translatable="false">pref_key_ha_dark_threshold</string>
+    <integer name="pref_default_ha_dark_threshold" translatable="false">10</integer>
+
+    <string name="pref_key_ha_turn_off_lights" translatable="false">pref_key_ha_turn_off_lights</string>
+    <bool name="pref_default_ha_turn_off_lights" translatable="false">true</bool>
+
+    <!-- Второе, дополнительное подключение Home Assistant -->
+    <string name="pref_key_ha2_enabled" translatable="false">pref_key_ha2_enabled</string>
+    <bool name="pref_default_ha2_enabled" translatable="false">false</bool>
+
+    <string name="pref_key_ha2_host" translatable="false">pref_key_ha2_host</string>
+
+    <string name="pref_key_ha2_port" translatable="false">pref_key_ha2_port</string>
+    <integer name="pref_default_ha2_port" translatable="false">8123</integer>
+
+    <string name="pref_key_ha2_token" translatable="false">pref_key_ha2_token</string>
+
+    <string name="pref_key_ha2_lamps" translatable="false">pref_key_ha2_lamps</string>
+
+    <string name="pref_key_ha2_update_interval" translatable="false">pref_key_ha2_update_interval</string>
+    <integer name="pref_default_ha2_update_interval" translatable="false">500</integer>
+
+    <string name="pref_key_ha2_change_threshold" translatable="false">pref_key_ha2_change_threshold</string>
+    <integer name="pref_default_ha2_change_threshold" translatable="false">10</integer>
+
+    <string name="pref_key_ha2_transition" translatable="false">pref_key_ha2_transition</string>
+    <integer name="pref_default_ha2_transition" translatable="false">300</integer>
+
+    <string name="pref_key_ha2_brightness_mode" translatable="false">pref_key_ha2_brightness_mode</string>
+    <string name="pref_default_ha2_brightness_mode" translatable="false">screen</string>
+
+    <string name="pref_key_ha2_brightness" translatable="false">pref_key_ha2_brightness</string>
+    <integer name="pref_default_ha2_brightness" translatable="false">255</integer>
+
+    <string name="pref_key_ha2_dark_off" translatable="false">pref_key_ha2_dark_off</string>
+    <bool name="pref_default_ha2_dark_off" translatable="false">true</bool>
+
+    <string name="pref_key_ha2_dark_threshold" translatable="false">pref_key_ha2_dark_threshold</string>
+    <integer name="pref_default_ha2_dark_threshold" translatable="false">10</integer>
+
+    <string name="pref_key_ha2_turn_off_lights" translatable="false">pref_key_ha2_turn_off_lights</string>
+    <bool name="pref_default_ha2_turn_off_lights" translatable="false">true</bool>
+
     <!-- LED layout settings -->
     <string name="pref_key_led_start_corner" translatable="false">pref_key_led_start_corner</string>
     <string name="pref_default_led_start_corner" translatable="false">bottom_left</string>

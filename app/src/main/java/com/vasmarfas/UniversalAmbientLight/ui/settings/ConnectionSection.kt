@@ -39,26 +39,32 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                     val defaultPort = when (newType) {
                         "hyperion" -> "19400"
                         "wled" -> if (state.wledProtocol == "ddp") "4048" else "19446"
+                        "homeassistant" -> "8123"
                         else -> null
                     }
                     if (defaultPort != null) {
                         prefs.putString(R.string.pref_key_port, defaultPort)
+                        state.currentPort = defaultPort
                     }
                 }
             )
         }
 
-        val isNetwork = state.connectionType == "hyperion" || state.connectionType == "wled"
-        val isAdalight = state.connectionType == "adalight"
         val isWled = state.connectionType == "wled"
         val isHyperion = state.connectionType == "hyperion"
+        val isAdalight = state.connectionType == "adalight"
+        val isHomeAssistant = state.connectionType == "homeassistant"
+        val isNetwork = isHyperion || isWled || isHomeAssistant
 
-        if (isNetwork) {
+        if (isHyperion || isWled) {
             ClickablePreference(
                 title = stringResource(R.string.scanner_scan_devices),
                 summary = stringResource(R.string.scanner_description),
                 onClick = { state.showScanDialog = true }
             )
+        }
+
+        if (isNetwork) {
 
             key(state.connectionType) {
                 EditTextPreference(
@@ -164,6 +170,24 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                     )
                 }
             }
+        }
+
+        if (isHomeAssistant) {
+            HomeAssistantSection(
+                prefs = prefs,
+                analyticsPrefix = "ha",
+                keyToken = R.string.pref_key_ha_token,
+                lampsSpec = state.haLampsSpec,
+                onLampsClick = { state.showHaLampsDialog = true },
+                keyUpdateInterval = R.string.pref_key_ha_update_interval,
+                keyChangeThreshold = R.string.pref_key_ha_change_threshold,
+                keyTransition = R.string.pref_key_ha_transition,
+                keyBrightnessMode = R.string.pref_key_ha_brightness_mode,
+                keyBrightness = R.string.pref_key_ha_brightness,
+                keyDarkOff = R.string.pref_key_ha_dark_off,
+                keyDarkThreshold = R.string.pref_key_ha_dark_threshold,
+                keyTurnOffLights = R.string.pref_key_ha_turn_off_lights,
+            )
         }
 
         if (isAdalight) {

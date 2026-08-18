@@ -51,8 +51,17 @@ class SettingsScreenState(prefs: Preferences) {
     /** Метод захвата до открытия предупреждения о доступности — на случай отказа. */
     var previousCaptureMethod by mutableStateOf(captureMethod)
 
+    /** Лампы Home Assistant с зонами — держится здесь ради живой сводки в настройках. */
+    var haLampsSpec by mutableStateOf(prefs.getString(R.string.pref_key_ha_lamps) ?: "")
+
+    /** Дополнительное подключение Home Assistant — работает параллельно с основным. */
+    var ha2Enabled by mutableStateOf(prefs.getBoolean(R.string.pref_key_ha2_enabled, false))
+    var ha2LampsSpec by mutableStateOf(prefs.getString(R.string.pref_key_ha2_lamps) ?: "")
+
     var showScanDialog by mutableStateOf(false)
     var showDebugDialog by mutableStateOf(false)
     var showAdbPairingDialog by mutableStateOf(false)
     var showAccessibilityDisclosure by mutableStateOf(false)
+    var showHaLampsDialog by mutableStateOf(false)
+    var showHa2LampsDialog by mutableStateOf(false)
 }

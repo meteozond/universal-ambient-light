@@ -23,12 +23,42 @@ import androidx.annotation.StringRes
 import androidx.core.app.ServiceCompat
 import com.vasmarfas.UniversalAmbientLight.R
 import com.vasmarfas.UniversalAmbientLight.common.network.ConnectionConfig
+import com.vasmarfas.UniversalAmbientLight.common.network.HomeAssistantClient
+import com.vasmarfas.UniversalAmbientLight.common.network.HomeAssistantLamp
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
 import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 import com.vasmarfas.UniversalAmbientLight.common.util.TclBypass
 import java.util.Objects
+
+/**
+ * Отдаёт кадры сразу двум приёмникам — основному подключению и дополнительному выводу на
+ * Home Assistant. Энкодер знает только про один listener, поэтому композиция подменяет его.
+ */
+private class DualHyperionThreadListener(
+    private val mPrimary: HyperionThread.HyperionThreadListener,
+    private val mSecondary: HyperionThread.HyperionThreadListener?,
+) : HyperionThread.HyperionThreadListener {
+    override fun sendFrame(data: ByteArray, width: Int, height: Int) {
+        mPrimary.sendFrame(data, width, height)
+        mSecondary?.sendFrame(data, width, height)
+    }
+
+    override fun clear() {
+        mPrimary.clear()
+        mSecondary?.clear()
+    }
+
+    override fun disconnect() {
+        mPrimary.disconnect()
+        mSecondary?.disconnect()
+    }
+
+    override fun sendStatus(isGrabbing: Boolean) {
+        mPrimary.sendStatus(isGrabbing)
+    }
+}
 
 class ScreenGrabberService : Service() {
 
@@ -42,6 +72,10 @@ class ScreenGrabberService : Service() {
     private var mHasConnected = false
     private var mMediaProjectionManager: MediaProjectionManager? = null
     private var mHyperionThread: HyperionThread? = null
+
+    // Дополнительный вывод на Home Assistant — работает параллельно с основным
+    // подключением (например, основной вывод на WLED, а сбоку ещё лампы HA)
+    private var mSecondaryHyperionThread: HyperionThread? = null
     private var mFrameRate: Int = 0
     private var mCaptureQuality: Int = 0
     private var mHorizontalLEDCount: Int = 0
@@ -120,6 +154,23 @@ class ScreenGrabberService : Service() {
         }
     }
 
+    /**
+     * Дополнительное подключение — необязательная надстройка над основным выводом, поэтому
+     * его сбои не должны валить сервис и основной канал: только лог, без mStartError и
+     * haltStartup(). HyperionThread сам продолжит переподключаться на общих основаниях.
+     */
+    private val mSecondaryReceiver = object : HyperionThreadBroadcaster {
+        override fun onConnected() {
+            if (DEBUG) Log.d(TAG, "Connected to the additional Home Assistant output")
+        }
+
+        override fun onConnectionError(errorID: Int, error: String?) {
+            Log.w(TAG, "Additional Home Assistant output error: " + (error ?: "unknown"))
+        }
+
+        override fun onReceiveStatus(isCapturing: Boolean) {}
+    }
+
     private val mEventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (Objects.requireNonNull(intent.action)) {
@@ -131,6 +182,7 @@ class ScreenGrabberService : Service() {
                     // Возобновляем вывод, если он был приглушён на время простоя
                     mStandby?.cancelPause()
                     mHyperionThread?.resumeSending()
+                    mSecondaryHyperionThread?.resumeSending()
 
                     // Снимаем блокировку отправки WLED после ошибки EPERM, чтобы продолжить при пробуждении
                     mHyperionThread?.resetBlockedIfWLED()
@@ -202,6 +254,7 @@ class ScreenGrabberService : Service() {
         mStandby = StandbyController(this, handler) {
             if (DEBUG) Log.v(TAG, "Standby: pausing all LED output")
             mHyperionThread?.pauseSending()
+            mSecondaryHyperionThread?.pauseSending()
         }
 
         // На запуске пробуем shell-обход для устройств TCL
@@ -259,6 +312,45 @@ class ScreenGrabberService : Service() {
         val outputDelayMs = prefs.getInt(R.string.pref_key_output_delay, 0).toLong()
         val updateFrequency = prefs.getInt(R.string.pref_key_update_frequency, 60)
 
+        val haToken = prefs.getString(R.string.pref_key_ha_token, "") ?: ""
+        val haLamps = prefs.getString(R.string.pref_key_ha_lamps, "") ?: ""
+        val haUpdateIntervalMs = prefs.getInt(R.string.pref_key_ha_update_interval, 500)
+            .coerceAtLeast(100).toLong()
+        val haChangeThreshold = prefs.getInt(R.string.pref_key_ha_change_threshold, 10)
+            .coerceIn(0, 255)
+        val haTransitionMs = prefs.getInt(R.string.pref_key_ha_transition, 300)
+            .coerceIn(0, 10_000)
+        val haBrightnessMode = prefs.getString(
+            R.string.pref_key_ha_brightness_mode,
+            HomeAssistantClient.BRIGHTNESS_MODE_SCREEN
+        ) ?: HomeAssistantClient.BRIGHTNESS_MODE_SCREEN
+        val haBrightnessMax = prefs.getInt(R.string.pref_key_ha_brightness, 255).coerceIn(1, 255)
+        val haDarkOffEnabled = prefs.getBoolean(R.string.pref_key_ha_dark_off, true)
+        val haDarkThreshold = prefs.getInt(R.string.pref_key_ha_dark_threshold, 10)
+            .coerceIn(1, 255)
+        val haTurnOffLights = prefs.getBoolean(R.string.pref_key_ha_turn_off_lights, true)
+
+        val ha2Enabled = prefs.getBoolean(R.string.pref_key_ha2_enabled, false)
+        val ha2Host = prefs.getString(R.string.pref_key_ha2_host, "")?.trim() ?: ""
+        val ha2Port = prefs.getInt(R.string.pref_key_ha2_port, 8123)
+        val ha2Token = prefs.getString(R.string.pref_key_ha2_token, "") ?: ""
+        val ha2Lamps = prefs.getString(R.string.pref_key_ha2_lamps, "") ?: ""
+        val ha2UpdateIntervalMs = prefs.getInt(R.string.pref_key_ha2_update_interval, 500)
+            .coerceAtLeast(100).toLong()
+        val ha2ChangeThreshold = prefs.getInt(R.string.pref_key_ha2_change_threshold, 10)
+            .coerceIn(0, 255)
+        val ha2TransitionMs = prefs.getInt(R.string.pref_key_ha2_transition, 300)
+            .coerceIn(0, 10_000)
+        val ha2BrightnessMode = prefs.getString(
+            R.string.pref_key_ha2_brightness_mode,
+            HomeAssistantClient.BRIGHTNESS_MODE_SCREEN
+        ) ?: HomeAssistantClient.BRIGHTNESS_MODE_SCREEN
+        val ha2BrightnessMax = prefs.getInt(R.string.pref_key_ha2_brightness, 255).coerceIn(1, 255)
+        val ha2DarkOffEnabled = prefs.getBoolean(R.string.pref_key_ha2_dark_off, true)
+        val ha2DarkThreshold = prefs.getInt(R.string.pref_key_ha2_dark_threshold, 10)
+            .coerceIn(1, 255)
+        val ha2TurnOffLights = prefs.getBoolean(R.string.pref_key_ha2_turn_off_lights, true)
+
         mMediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         val method = prefs.getString(R.string.pref_key_capture_method, "media_projection")
@@ -294,11 +386,49 @@ class ScreenGrabberService : Service() {
             smoothingPreset = smoothingPreset,
             settlingTime = settlingTime,
             outputDelayMs = outputDelayMs,
-            updateFrequency = updateFrequency
+            updateFrequency = updateFrequency,
+            haToken = haToken,
+            haLamps = haLamps,
+            haUpdateIntervalMs = haUpdateIntervalMs,
+            haChangeThreshold = haChangeThreshold,
+            haTransitionMs = haTransitionMs,
+            haBrightnessMode = haBrightnessMode,
+            haBrightnessMax = haBrightnessMax,
+            haDarkOffEnabled = haDarkOffEnabled,
+            haDarkThreshold = haDarkThreshold,
+            haTurnOffLights = haTurnOffLights
         )
         val thread = HyperionThread(mReceiver, baseContext, config)
         mHyperionThread = thread
         thread.start()
+
+        // Дополнительный вывод — необязательная надстройка: недозаполненные настройки просто
+        // пропускают его, не роняя уже работающий основной канал
+        if (ha2Enabled && ha2Token.isNotBlank() && ha2Host.isNotBlank() &&
+            ha2Port in 1..65535 && HomeAssistantLamp.parseList(ha2Lamps).isNotEmpty()
+        ) {
+            val secondaryConfig = config.copy(
+                host = ha2Host,
+                port = ha2Port,
+                connectionType = "homeassistant",
+                haToken = ha2Token,
+                haLamps = ha2Lamps,
+                haUpdateIntervalMs = ha2UpdateIntervalMs,
+                haChangeThreshold = ha2ChangeThreshold,
+                haTransitionMs = ha2TransitionMs,
+                haBrightnessMode = ha2BrightnessMode,
+                haBrightnessMax = ha2BrightnessMax,
+                haDarkOffEnabled = ha2DarkOffEnabled,
+                haDarkThreshold = ha2DarkThreshold,
+                haTurnOffLights = ha2TurnOffLights
+            )
+            val secondaryThread = HyperionThread(mSecondaryReceiver, baseContext, secondaryConfig)
+            mSecondaryHyperionThread = secondaryThread
+            secondaryThread.start()
+        } else if (ha2Enabled) {
+            Log.w(TAG, "Additional Home Assistant output enabled but not fully configured, skipping")
+        }
+
         mStartError = null
         return true
     }
@@ -616,6 +746,10 @@ class ScreenGrabberService : Service() {
         return false
     }
 
+    /** Listener энкодера: основной канал плюс дополнительный вывод на HA, если он включён. */
+    private fun receiverFor(thread: HyperionThread): HyperionThread.HyperionThreadListener =
+        DualHyperionThreadListener(thread.receiver, mSecondaryHyperionThread?.receiver)
+
     private fun startCameraCapture() {
         if (DEBUG) Log.v(TAG, "Starting camera capture")
         val thread = mHyperionThread
@@ -634,7 +768,7 @@ class ScreenGrabberService : Service() {
 
         val encoder = CameraEncoder(
             this,
-            thread.receiver,
+            receiverFor(thread),
             options,
             corners
         )
@@ -682,14 +816,23 @@ class ScreenGrabberService : Service() {
      * закрытие порта), поэтому уводится с вызывающего потока.
      */
     private fun shutDownHyperionThread() {
-        val thread = mHyperionThread ?: return
+        val thread = mHyperionThread
+        val secondary = mSecondaryHyperionThread
         mHyperionThread = null
-        thread.interrupt()
+        mSecondaryHyperionThread = null
+        if (thread == null && secondary == null) return
+        thread?.interrupt()
+        secondary?.interrupt()
         Thread({
             try {
-                thread.receiver.disconnect()
+                thread?.receiver?.disconnect()
             } catch (e: Exception) {
                 Log.w(TAG, "HyperionThread shutdown failed: ${e.message}")
+            }
+            try {
+                secondary?.receiver?.disconnect()
+            } catch (e: Exception) {
+                Log.w(TAG, "Additional Home Assistant output shutdown failed: ${e.message}")
             }
         }, "hyperion-shutdown").apply { isDaemon = true }.start()
     }
@@ -771,7 +914,7 @@ class ScreenGrabberService : Service() {
                 "Creating encoder: " + metrics.widthPixels + "x" + metrics.heightPixels
             )
             val encoder = ScreenEncoder(
-                thread.receiver,
+                receiverFor(thread),
                 projection,
                 metrics.widthPixels,
                 metrics.heightPixels,
@@ -821,7 +964,7 @@ class ScreenGrabberService : Service() {
                 if (DEBUG) Log.v(TAG, "Creating Accessibility encoder")
                 val encoder = AccessibilityEncoder(
                     accessibilityService,
-                    thread.receiver,
+                    receiverFor(thread),
                     metrics.widthPixels,
                     metrics.heightPixels,
                     options
@@ -841,7 +984,7 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Creating ADB encoder on port $adbPort")
             val encoder = AdbEncoder(
                 this.applicationContext,
-                thread.receiver,
+                receiverFor(thread),
                 metrics.widthPixels,
                 metrics.heightPixels,
                 options,
@@ -857,7 +1000,7 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Creating screenrecord (H.264 stream) encoder on port $adbPort")
             val encoder = ScreenrecordEncoder(
                 this.applicationContext,
-                thread.receiver,
+                receiverFor(thread),
                 metrics.widthPixels,
                 metrics.heightPixels,
                 options,
@@ -881,7 +1024,7 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Creating scrcpy encoder on port $adbPort")
             val encoder = ScrcpyEncoder(
                 this.applicationContext,
-                thread.receiver,
+                receiverFor(thread),
                 metrics.widthPixels,
                 metrics.heightPixels,
                 options,
@@ -904,7 +1047,7 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Creating MTK THAL Capture encoder")
             val encoder = MtkThalCaptureEncoder(
                 this.applicationContext,
-                thread.receiver,
+                receiverFor(thread),
                 metrics.widthPixels,
                 metrics.heightPixels,
                 options,
@@ -926,7 +1069,7 @@ class ScreenGrabberService : Service() {
         if (DEBUG) Log.v(TAG, "Creating screencap encoder (root=$useRoot)")
         val encoder = ScreencapEncoder(
             this.applicationContext,
-            thread.receiver,
+            receiverFor(thread),
             metrics.widthPixels,
             metrics.heightPixels,
             options,
@@ -994,7 +1137,7 @@ class ScreenGrabberService : Service() {
             val options = buildAppOptions(prefs)
 
             val encoder = ScreenEncoder(
-                thread.receiver,
+                receiverFor(thread),
                 projection,
                 metrics.widthPixels,
                 metrics.heightPixels,
@@ -1029,9 +1172,12 @@ class ScreenGrabberService : Service() {
             if (DEBUG) Log.v(TAG, "Stopping ${backend.javaClass.simpleName}")
             backend.stopRecording()
             mActiveBackend = null
-            // Клиент и executors закроет цепочка stopRecording → listener.disconnect()
+            // Клиент и executors закроет цепочка stopRecording → listener.disconnect(),
+            // она уже дошла и до дополнительного вывода через DualHyperionThreadListener
             mHyperionThread?.interrupt()
             mHyperionThread = null
+            mSecondaryHyperionThread?.interrupt()
+            mSecondaryHyperionThread = null
         } else {
             // Энкодера нет — закрывать соединение некому, кроме нас
             shutDownHyperionThread()
@@ -1232,6 +1378,24 @@ class ScreenGrabberService : Service() {
                         "invalid_port",
                         context.getString(R.string.error_invalid_port, port),
                         "port: $port"
+                    )
+                }
+            }
+
+            if ("homeassistant".equals(connectionType, ignoreCase = true)) {
+                val token = prefs.getString(R.string.pref_key_ha_token, "")?.trim() ?: ""
+                if (token.isEmpty()) {
+                    return SettingsError(
+                        "ha_token_missing",
+                        context.getString(R.string.error_ha_token_missing)
+                    )
+                }
+                val lamps =
+                    HomeAssistantLamp.parseList(prefs.getString(R.string.pref_key_ha_lamps, ""))
+                if (lamps.isEmpty()) {
+                    return SettingsError(
+                        "ha_no_lamps",
+                        context.getString(R.string.error_ha_no_lamps)
                     )
                 }
             }

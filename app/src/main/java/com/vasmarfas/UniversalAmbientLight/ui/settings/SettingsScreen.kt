@@ -86,6 +86,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             ConnectionSection(prefs, state)
+            HomeAssistantSecondarySection(prefs, state)
             CaptureSection(prefs, state, onLedLayoutClick, onCameraSetupClick)
             CameraIdleSection(prefs, state)
             BorderDetectionSection(prefs, state)
@@ -274,6 +275,28 @@ fun SettingsScreen(
             context = context,
             prefs = prefs,
             onDismiss = { state.showAdbPairingDialog = false }
+        )
+    }
+    if (state.showHaLampsDialog) {
+        HomeAssistantLampsDialog(
+            prefs = prefs,
+            keyHost = R.string.pref_key_host,
+            keyPort = R.string.pref_key_port,
+            keyToken = R.string.pref_key_ha_token,
+            keyLamps = R.string.pref_key_ha_lamps,
+            onSaved = { state.haLampsSpec = it },
+            onDismiss = { state.showHaLampsDialog = false }
+        )
+    }
+    if (state.showHa2LampsDialog) {
+        HomeAssistantLampsDialog(
+            prefs = prefs,
+            keyHost = R.string.pref_key_ha2_host,
+            keyPort = R.string.pref_key_ha2_port,
+            keyToken = R.string.pref_key_ha2_token,
+            keyLamps = R.string.pref_key_ha2_lamps,
+            onSaved = { state.ha2LampsSpec = it },
+            onDismiss = { state.showHa2LampsDialog = false }
         )
     }
 }

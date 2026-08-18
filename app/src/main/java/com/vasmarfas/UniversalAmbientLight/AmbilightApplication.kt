@@ -62,9 +62,15 @@ class AmbilightApplication : Application() {
         }
 
         // Числовые настройки, для которых вызывающий код передаёт в getInt() свои константы
-        // и поэтому никогда не увидит xml-умолчание, если его не посеять.
+        // и поэтому никогда не увидит xml-умолчание, если его не посеять. Интервал и переход
+        // Home Assistant сеются ещё и ради списков в настройках: ListPreference читает
+        // строку и без посева показывал бы первый пункт вместо действующего значения.
         listOf(
-            R.string.pref_key_port to R.integer.pref_default_port
+            R.string.pref_key_port to R.integer.pref_default_port,
+            R.string.pref_key_ha_update_interval to R.integer.pref_default_ha_update_interval,
+            R.string.pref_key_ha_transition to R.integer.pref_default_ha_transition,
+            R.string.pref_key_ha2_update_interval to R.integer.pref_default_ha2_update_interval,
+            R.string.pref_key_ha2_transition to R.integer.pref_default_ha2_transition
         ).forEach { (keyRes, defRes) ->
             if (!prefs.contains(keyRes)) {
                 runCatching {

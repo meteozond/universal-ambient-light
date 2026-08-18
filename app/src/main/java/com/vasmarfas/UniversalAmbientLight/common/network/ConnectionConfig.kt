@@ -26,4 +26,16 @@ data class ConnectionConfig(
     val settlingTime: Int = 200,
     val outputDelayMs: Long = 80L,
     val updateFrequency: Int = 25,
+    val haToken: String = "",
+    /** Лампы с зонами в формате [HomeAssistantLamp.serialize]. */
+    val haLamps: String = "",
+    val haUpdateIntervalMs: Long = 500L,
+    val haChangeThreshold: Int = 10,
+    val haTransitionMs: Int = 300,
+    val haBrightnessMode: String = HomeAssistantClient.BRIGHTNESS_MODE_SCREEN,
+    /** 0..255 — потолок яркости ламп в режиме «следует за картинкой». */
+    val haBrightnessMax: Int = 255,
+    val haDarkOffEnabled: Boolean = true,
+    val haDarkThreshold: Int = 10,
+    val haTurnOffLights: Boolean = true,
 )

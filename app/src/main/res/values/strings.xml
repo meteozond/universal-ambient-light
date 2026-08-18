@@ -281,11 +281,13 @@
     <item>Hyperion</item>
     <item>WLED</item>
     <item>Adalight</item>
+    <item>Home Assistant</item>
   </string-array>
   <string-array name="pref_list_connection_type_values">
     <item>hyperion</item>
     <item>wled</item>
     <item>adalight</item>
+    <item>homeassistant</item>
   </string-array>
   <string name="pref_title_adalight_baudrate">Adalight Baud Rate</string>
   <string-array name="pref_list_adalight_baudrate">
@@ -375,6 +377,91 @@
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
   <string name="pref_title_wled_brightness">WLED brightness</string>
   <string name="pref_summary_wled_brightness_max">255 — colors are sent unchanged</string>
+  <!-- Home Assistant -->
+  <string name="pref_title_ha_token">Access token</string>
+  <string name="pref_summary_ha_token_empty">Long-lived token from your Home Assistant profile → Security</string>
+  <string name="pref_summary_ha_token_set">Token saved</string>
+  <string name="pref_title_ha_lamps">Lights and zones</string>
+  <string name="pref_summary_ha_lamps_empty">No lights configured</string>
+  <string name="pref_summary_ha_lamps_count">Lights configured: %1$d</string>
+  <string name="pref_title_ha_update_interval">Update rate</string>
+  <string-array name="pref_list_ha_update_interval">
+    <item>10 per second (100 ms)</item>
+    <item>150 ms</item>
+    <item>4 per second (250 ms)</item>
+    <item>2 per second (500 ms)</item>
+    <item>1 per second</item>
+    <item>Every 2 seconds</item>
+    <item>Every 5 seconds</item>
+  </string-array>
+  <string-array name="pref_list_ha_update_interval_values" translatable="false">
+    <item>100</item>
+    <item>150</item>
+    <item>250</item>
+    <item>500</item>
+    <item>1000</item>
+    <item>2000</item>
+    <item>5000</item>
+  </string-array>
+  <string name="pref_title_ha_change_threshold">Color change threshold</string>
+  <string name="pref_summary_ha_change_threshold">0–255. An update is sent only when the zone color changes at least this much</string>
+  <string name="pref_title_ha_transition">Transition</string>
+  <string-array name="pref_list_ha_transition">
+    <item>Off</item>
+    <item>150 ms</item>
+    <item>300 ms</item>
+    <item>500 ms</item>
+    <item>1 second</item>
+    <item>2 seconds</item>
+  </string-array>
+  <string-array name="pref_list_ha_transition_values" translatable="false">
+    <item>0</item>
+    <item>150</item>
+    <item>300</item>
+    <item>500</item>
+    <item>1000</item>
+    <item>2000</item>
+  </string-array>
+  <string name="pref_title_ha_brightness_mode">Brightness</string>
+  <string-array name="pref_list_ha_brightness_mode">
+    <item>Follows the picture</item>
+    <item>Don\'t change</item>
+  </string-array>
+  <string-array name="pref_list_ha_brightness_mode_values" translatable="false">
+    <item>screen</item>
+    <item>keep</item>
+  </string-array>
+  <string name="pref_title_ha_brightness">Brightness limit</string>
+  <string name="pref_summary_ha_brightness_max">255 — full lamp brightness</string>
+  <string name="pref_title_ha_dark_off">Turn off on dark scenes</string>
+  <string name="pref_summary_ha_dark_off">Lights switch off when the zone goes darker than the threshold and come back with the picture</string>
+  <string name="pref_title_ha_dark_threshold">Dark threshold</string>
+  <string name="pref_title_ha_turn_off_lights">Turn lights off on stop</string>
+  <string name="pref_summary_ha_turn_off_lights">Switch the lights off when capture stops or the TV screen goes off</string>
+  <string name="ha_lamps_dialog_title">Home Assistant lights</string>
+  <string name="ha_lamps_loading">Loading lights…</string>
+  <string name="ha_lamps_error">Couldn\'t reach Home Assistant: %1$s</string>
+  <string name="ha_lamps_empty">No lights found</string>
+  <string name="ha_lamps_hint">Set the host and access token first, then pick a zone for each light</string>
+  <string name="ha_zone_none">Not used</string>
+  <string name="ha_zone_average">Average screen color</string>
+  <string name="ha_zone_left">Left edge</string>
+  <string name="ha_zone_right">Right edge</string>
+  <string name="ha_zone_top">Top edge</string>
+  <string name="ha_zone_bottom">Bottom edge</string>
+  <string name="ha_zone_top_left">Top-left corner</string>
+  <string name="ha_zone_top_right">Top-right corner</string>
+  <string name="ha_zone_bottom_left">Bottom-left corner</string>
+  <string name="ha_zone_bottom_right">Bottom-right corner</string>
+  <string name="ha_lamps_lamp_missing">Not seen on this Home Assistant right now</string>
+  <string name="action_save">Save</string>
+  <string name="error_ha_token_missing">Home Assistant access token is not set. Open Settings → Connection → Access token</string>
+  <string name="error_ha_no_lamps">No Home Assistant lights are assigned to zones. Open Settings → Connection → Lights and zones</string>
+
+  <!-- Second, additional Home Assistant output -->
+  <string name="pref_group_ha_secondary">Additional Home Assistant output</string>
+  <string name="pref_title_ha2_enabled">Also drive Home Assistant lights</string>
+  <string name="pref_summary_ha2_enabled">Runs alongside the main connection above — e.g. main output on WLED, plus side lamps on Home Assistant</string>
 
   <!-- Adalight advanced settings -->
   <string name="pref_title_adalight_protocol">Adalight Protocol</string>

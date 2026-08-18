@@ -19,6 +19,8 @@ class HyperionThread(
     config: ConnectionConfig,
 ) : Thread(TAG) {
 
+    // Home Assistant настроек много — клиент собирается прямо из конфига
+    private val mConfig: ConnectionConfig = config
     private val mHost: String = config.host
     private val mPort: Int = config.port
     private val mPriority: Int = config.priority
@@ -228,6 +230,7 @@ class HyperionThread(
         when (val client = mClient.get()) {
             is WLEDClient -> client.pauseSending()
             is AdalightClient -> client.pauseSending()
+            is HomeAssistantClient -> client.pauseSending()
             else -> {}
         }
     }
@@ -240,6 +243,7 @@ class HyperionThread(
         when (val client = mClient.get()) {
             is WLEDClient -> client.resumeSending()
             is AdalightClient -> client.resumeSending()
+            is HomeAssistantClient -> client.resumeSending()
             else -> {}
         }
     }
@@ -318,6 +322,21 @@ class HyperionThread(
             AdalightClient(
                 mContext, mPriority, mBaudRate, mAdalightProtocol,
                 mSmoothingEnabled, mSmoothingPreset, mSettlingTime, mOutputDelayMs, mUpdateFrequency
+            )
+        } else if ("homeassistant".equals(mConnectionType, ignoreCase = true)) {
+            HomeAssistantClient(
+                host,
+                mPort,
+                mConfig.haToken,
+                mConfig.haLamps,
+                mConfig.haUpdateIntervalMs,
+                mConfig.haChangeThreshold,
+                mConfig.haTransitionMs,
+                mConfig.haBrightnessMode,
+                mConfig.haBrightnessMax,
+                mConfig.haDarkOffEnabled,
+                mConfig.haDarkThreshold,
+                mConfig.haTurnOffLights
             )
         } else {
             // По умолчанию — Hyperion

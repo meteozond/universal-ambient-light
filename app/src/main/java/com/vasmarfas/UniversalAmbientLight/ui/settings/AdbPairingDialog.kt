@@ -62,21 +62,28 @@ fun AdbPairingDialog(
     var manualExpanded by remember { mutableStateOf(false) }
     var showAutoPairConsent by remember { mutableStateOf(false) }
 
-    val devEnabled = remember { DevOptionsHelper.isDeveloperOptionsEnabled(context) }
-    val adbEnabled = remember { DevOptionsHelper.isAdbEnabled(context) }
+    var devEnabled by remember { mutableStateOf(DevOptionsHelper.isDeveloperOptionsEnabled(context)) }
+    var adbEnabled by remember { mutableStateOf(DevOptionsHelper.isAdbEnabled(context)) }
     val onLabel = stringResource(R.string.adb_status_on)
     val offLabel = stringResource(R.string.adb_status_off)
 
     // Когда пользователь возвращается, включив службу доступности (сценарий автосопряжения),
     // снова открываем диалог согласия, чтобы сопряжение продолжилось без повторного нажатия.
+    // Заодно перечитываем статусы Dev options/ADB: за ними пользователь и уходил в настройки,
+    // и замороженные значения показывали бы красное «выключено» после включения.
     val lifecycle = (context as? androidx.lifecycle.LifecycleOwner)?.lifecycle
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
-                AccessibilityCaptureService.consumeAutoPairPending() &&
-                AccessibilityCaptureService.isAvailable()
-            ) {
-                showAutoPairConsent = true
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                devEnabled = DevOptionsHelper.isDeveloperOptionsEnabled(context)
+                adbEnabled = DevOptionsHelper.isAdbEnabled(context)
+                // Сначала isAvailable: consume снимает флаг, и в обратном порядке возврат
+                // без включённой службы съедал бы его — согласие не открылось бы уже никогда
+                if (AccessibilityCaptureService.isAvailable() &&
+                    AccessibilityCaptureService.consumeAutoPairPending()
+                ) {
+                    showAutoPairConsent = true
+                }
             }
         }
         lifecycle?.addObserver(observer)

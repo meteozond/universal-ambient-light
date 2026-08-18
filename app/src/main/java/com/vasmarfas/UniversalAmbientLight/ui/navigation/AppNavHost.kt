@@ -9,12 +9,16 @@ import android.content.res.Configuration
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.NavHostController
@@ -45,11 +49,12 @@ fun AppNavHost(
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Screen.Home.route) {
             val context = LocalContext.current
-            var showHelpDialog by remember { mutableStateOf(false) }
-            var showSupportDialog by remember { mutableStateOf(false) }
-            var showUrlDialog by remember { mutableStateOf<String?>(null) }
-            var showRatingDialog by remember { mutableStateOf(false) }
-            var showLowRatingDialog by remember { mutableStateOf(false) }
+            // rememberSaveable: поворот экрана не должен закрывать открытые диалоги
+            var showHelpDialog by rememberSaveable { mutableStateOf(false) }
+            var showSupportDialog by rememberSaveable { mutableStateOf(false) }
+            var showUrlDialog by rememberSaveable { mutableStateOf<String?>(null) }
+            var showRatingDialog by rememberSaveable { mutableStateOf(false) }
+            var showLowRatingDialog by rememberSaveable { mutableStateOf(false) }
 
             val isTv = remember {
                 val uiModeManager =
@@ -58,10 +63,26 @@ fun AppNavHost(
                         context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
             }
 
-            // Источник захвата читаем из настроек — перечитывается при возврате с экрана настроек
-            val captureSource = remember(navController.currentBackStackEntry) {
-                Preferences(context).getString(R.string.pref_key_capture_source, "screen")
-                    ?: "screen"
+            // Источник захвата перечитывается при возврате с экрана настроек. Именно по
+            // ON_RESUME записи стека: currentBackStackEntry — не snapshot-state, и ключ по
+            // нему срабатывал бы в произвольные моменты рекомпозиции.
+            var captureSource by remember {
+                mutableStateOf(
+                    Preferences(context).getString(R.string.pref_key_capture_source, "screen")
+                        ?: "screen"
+                )
+            }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        captureSource =
+                            Preferences(context).getString(R.string.pref_key_capture_source, "screen")
+                                ?: "screen"
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
 
             LaunchedEffect(Unit) {
@@ -71,7 +92,10 @@ fun AppNavHost(
             MainScreen(
                 isRunning = isRunning,
                 onToggleClick = onToggleClick,
-                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                // singleTop: дребезг пульта на ТВ кладёт в стек два экрана настроек подряд
+                onSettingsClick = {
+                    navController.navigate(Screen.Settings.route) { launchSingleTop = true }
+                },
                 onEffectsClick = onEffectsClick,
                 effectMode = effectMode,
                 captureSource = captureSource,
@@ -198,18 +222,20 @@ fun AppNavHost(
         }
         composable(Screen.Settings.route) {
             val context = LocalContext.current
-            // Ключ по записи в стеке навигации сбрасывает состояние при переходе
-            val backStackEntry = navController.currentBackStackEntry
-            key(backStackEntry?.id) {
-                LaunchedEffect(Unit) {
-                    AnalyticsHelper.logScreenView(context, "settings", "SettingsScreen")
-                }
-                SettingsScreen(
-                    onBackClick = { navController.popBackStack() },
-                    onLedLayoutClick = { navController.navigate(Screen.LedLayout.route) },
-                    onCameraSetupClick = { navController.navigate(Screen.CameraSetup.route) }
-                )
+            // Состояние сбрасывается само с каждой новой записью стека; ключ по
+            // currentBackStackEntry здесь ловил бы чужие переходы посреди анимации
+            LaunchedEffect(Unit) {
+                AnalyticsHelper.logScreenView(context, "settings", "SettingsScreen")
             }
+            SettingsScreen(
+                onBackClick = { navController.popBackStack() },
+                onLedLayoutClick = {
+                    navController.navigate(Screen.LedLayout.route) { launchSingleTop = true }
+                },
+                onCameraSetupClick = {
+                    navController.navigate(Screen.CameraSetup.route) { launchSingleTop = true }
+                }
+            )
         }
         composable(Screen.LedLayout.route) {
             val context = LocalContext.current

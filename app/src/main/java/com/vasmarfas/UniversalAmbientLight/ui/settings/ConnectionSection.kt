@@ -85,7 +85,6 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                         entriesRes = R.array.pref_list_wled_protocol,
                         entryValuesRes = R.array.pref_list_wled_protocol_values,
                         onValueChange = { newProtocol ->
-                            state.wledProtocol
                             state.wledProtocol = newProtocol
                             AnalyticsHelper.logSettingChanged(
                                 context,

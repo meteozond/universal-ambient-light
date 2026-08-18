@@ -28,50 +28,8 @@ import androidx.compose.ui.unit.dp
 import com.vasmarfas.UniversalAmbientLight.R
 
 /**
- * Мелкие элементы экрана раскладки: карточка настройки, пункт легенды и подписи.
+ * Мелкие элементы экрана раскладки: пункт легенды и подписи.
  */
-@Composable
-fun SettingCard(
-    title: String,
-    value: String,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val indication = LocalIndication.current
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = indication,
-                onClick = onClick
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
 @Composable
 fun LegendItem(color: Color, text: String) {
     Row(

@@ -85,11 +85,15 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
                     if (newMethod == "accessibility") {
                         // Смотрим, включена ли служба
                         if (AccessibilityCaptureService.getInstance() == null) {
-                            // Предупреждение показываем ДО применения выбора и открытия настроек.
-                            // ListPreference уже сохранил значение в настройки, поэтому при отказе
-                            state.previousCaptureMethod =
-                                state.captureMethod // save old method (which is actually current before update in state)
-                            // его придётся вернуть обратно — здесь мы этот момент и перехватываем.
+                            // ListPreference уже сохранил выбор в настройки — откатываем его
+                            // сразу: поворот или смерть процесса с открытым предупреждением
+                            // не должны оставить accessibility включённым без согласия.
+                            // Подтверждение в диалоге запишет значение заново.
+                            state.previousCaptureMethod = state.captureMethod
+                            prefs.putString(
+                                R.string.pref_key_capture_method,
+                                state.captureMethod
+                            )
                             state.showAccessibilityDisclosure = true
                         } else {
                             state.captureMethod = newMethod

@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -149,7 +149,7 @@ fun DeviceScanDialog(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 LinearProgressIndicator(
-                                    progress = progress,
+                                    progress = { progress },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
@@ -158,9 +158,10 @@ fun DeviceScanDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
-                                if (currentScanIp != null) {
+                                val scanIp = currentScanIp
+                                if (scanIp != null) {
                                     Text(
-                                        text = "Scanning: $currentScanIp",
+                                        text = stringResource(R.string.scan_scanning, scanIp),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(top = 2.dp)
@@ -267,21 +268,21 @@ private fun DeviceItem(
                 )
                 if (device.hostname != null) {
                     Text(
-                        text = "Hostname: ${device.hostname}",
+                        text = stringResource(R.string.scan_hostname, device.hostname),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (device.protocol != null) {
                     Text(
-                        text = "Protocol: ${device.protocol}",
+                        text = stringResource(R.string.scan_protocol, device.protocol),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
             Icon(
-                Icons.Default.ArrowForward,
+                Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp)
             )

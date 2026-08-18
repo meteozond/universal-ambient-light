@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +21,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
@@ -37,11 +38,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringArrayResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
+import com.vasmarfas.UniversalAmbientLight.R
 import kotlinx.coroutines.launch
 
 /**
@@ -78,7 +81,8 @@ fun CheckBoxPreference(
                 value = checked,
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
-                role = Role.Checkbox,
+                // Справа Switch — TalkBack не должен объявлять его «флажком»
+                role = Role.Switch,
                 onValueChange = {
                     checked = it
                     prefs.putBoolean(keyRes, it)
@@ -129,8 +133,9 @@ fun EditTextPreference(
         recomposeKey?.let { value = readInitial() }
     }
 
-    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана
-    var showDialog by remember(recomposeKey) { mutableStateOf(false) }
+    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана.
+    // rememberSaveable — чтобы открытый диалог переживал поворот экрана.
+    var showDialog by rememberSaveable(recomposeKey) { mutableStateOf(false) }
 
     // Закрываем диалог, когда компонент уходит из композиции
     DisposableEffect(Unit) {
@@ -159,7 +164,8 @@ fun EditTextPreference(
     }
 
     if (showDialog) {
-        var tempValue by remember(showDialog) { mutableStateOf(value) }
+        // rememberSaveable — введённый текст не теряется при повороте экрана
+        var tempValue by rememberSaveable(showDialog) { mutableStateOf(value) }
         val keyboardController = LocalSoftwareKeyboardController.current
 
         LaunchedEffect(showDialog) {
@@ -197,7 +203,7 @@ fun EditTextPreference(
             },
             confirmButton = {
                 TextButton(onClick = { applyValue() }) {
-                    Text("OK")
+                    Text(stringResource(R.string.action_ok))
                 }
             },
             dismissButton = {
@@ -205,7 +211,7 @@ fun EditTextPreference(
                     keyboardController?.hide()
                     showDialog = false
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -235,8 +241,9 @@ fun ListPreference(
     LaunchedEffect(recomposeKey) {
         recomposeKey?.let { value = prefs.getString(keyRes) ?: entryValues.firstOrNull() ?: "" }
     }
-    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана
-    var showDialog by remember(recomposeKey) { mutableStateOf(false) }
+    // Сбрасываем состояние диалога при смене recomposeKey — например, при уходе с экрана.
+    // rememberSaveable — чтобы открытый диалог переживал поворот экрана.
+    var showDialog by rememberSaveable(recomposeKey) { mutableStateOf(false) }
 
     // Закрываем диалог, когда компонент уходит из композиции
     DisposableEffect(Unit) {
@@ -292,7 +299,9 @@ fun ListPreference(
                                         }
                                     )
                                 )
-                                .padding(12.dp)
+                                // Не ниже 48dp: строки по 12dp не дотягивали до цели касания
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 12.dp, vertical = 12.dp)
                                 .alpha(if (isDisabled) 0.38f else 1f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -310,7 +319,7 @@ fun ListPreference(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -326,33 +335,29 @@ fun ClickablePreference(
     val interactionSource = remember { MutableInteractionSource() }
     val indication = LocalIndication.current
 
-    Surface(
+    // Та же геометрия, что у остальных пунктов списка: обёртка в Surface с другим
+    // вертикальным отступом заставляла ряды «плясать» по высоте
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
                 interactionSource = interactionSource,
                 indication = indication,
                 onClick = onClick
-            ),
-        color = MaterialTheme.colorScheme.surface
-    ) {
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface
             )
-            if (summary != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            .padding(16.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        if (summary != null) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Help
@@ -49,7 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vasmarfas.UniversalAmbientLight.R
-import com.vasmarfas.UniversalAmbientLight.ui.navigation.Screen
+import com.vasmarfas.UniversalAmbientLight.ui.camera.CameraPreviewBackground
 import kotlin.math.sqrt
 
 /**
@@ -82,6 +86,30 @@ internal fun EffectMode.next(): EffectMode =
         EffectMode.HORIZONTAL_BARS -> EffectMode.RAINBOW
     }
 
+/**
+ * Рамка фокуса для d-pad на ТВ. Отдельно от border с условной шириной: 0.dp — это
+ * Dp.Hairline, и тонкое кольцо primary рисовалось даже без фокуса.
+ */
+@Composable
+private fun Modifier.focusBorder(focused: Boolean): Modifier =
+    if (focused) {
+        border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
+    } else {
+        this
+    }
+
+/** Контур OutlinedButton, подсвечивающийся при фокусе с пульта. */
+@Composable
+private fun focusableOutline(focused: Boolean): BorderStroke =
+    BorderStroke(
+        width = if (focused) 2.dp else 1.dp,
+        color = if (focused) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.outline
+        }
+    )
+
 @Composable
 fun MainScreen(
     isRunning: Boolean,
@@ -98,7 +126,7 @@ fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         // В режиме камеры фоном идёт превью камеры с углами
         if (captureSource == "camera") {
-            com.vasmarfas.UniversalAmbientLight.ui.camera.CameraPreviewBackground(isCapturing = isRunning)
+            CameraPreviewBackground(isCapturing = isRunning)
         }
 
         // В режиме экрана — анимированный фон, но только когда захват запущен
@@ -322,14 +350,21 @@ fun MainScreen(
             }
         }
 
-        // Центральный блок с рядом кнопок управления
+        // Центральный блок с рядом кнопок управления. Прокрутка — на телефоне в ландшафте
+        // колонка выше экрана, и без неё нижние кнопки было не достать.
         Column(
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             var effectsFocused by remember { mutableStateOf(false) }
             var powerFocused by remember { mutableStateOf(false) }
             var settingsFocused by remember { mutableStateOf(false) }
+
+            // Эффекты рисуются на экране устройства и попадают на ленту через захват
+            // экрана — в режиме камеры кнопка ничего не меняет
+            val effectsEnabled = captureSource != "camera"
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -344,25 +379,28 @@ fun MainScreen(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
                             shape = CircleShape
                         )
-                        .border(
-                            width = if (effectsFocused) 3.dp else 0.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = CircleShape
-                        )
+                        .focusBorder(effectsFocused)
                         .padding(4.dp)
                         .background(MaterialTheme.colorScheme.background, CircleShape)
                 ) {
                     IconButton(
                         onClick = onEffectsClick,
+                        enabled = effectsEnabled,
                         modifier = Modifier
                             .size(72.dp)
                             .onFocusChanged { effectsFocused = it.isFocused }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Palette,
-                            contentDescription = "Effects",
+                            contentDescription = stringResource(R.string.home_effects),
                             modifier = Modifier.size(40.dp),
-                            tint = if (isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                            tint = when {
+                                !effectsEnabled ->
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f)
+
+                                isRunning -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onBackground
+                            }
                         )
                     }
                 }
@@ -386,11 +424,7 @@ fun MainScreen(
                             ) else Brush.linearGradient(listOf(Color.Gray, Color.Gray)),
                             shape = CircleShape
                         )
-                        .border(
-                            width = if (powerFocused) 3.dp else 0.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = CircleShape
-                        )
+                        .focusBorder(powerFocused)
                         .padding(4.dp) // Border width
                         .background(MaterialTheme.colorScheme.background, CircleShape)
                 ) {
@@ -402,7 +436,7 @@ fun MainScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.PowerSettingsNew,
-                            contentDescription = "Toggle Power",
+                            contentDescription = stringResource(R.string.home_toggle_power),
                             modifier = Modifier
                                 .size(64.dp)
                                 .alpha(if (isRunning) 1f else 0.25f),
@@ -420,11 +454,7 @@ fun MainScreen(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
                             shape = CircleShape
                         )
-                        .border(
-                            width = if (settingsFocused) 3.dp else 0.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = CircleShape
-                        )
+                        .focusBorder(settingsFocused)
                         .padding(4.dp)
                         .background(MaterialTheme.colorScheme.background, CircleShape)
                 ) {
@@ -436,7 +466,7 @@ fun MainScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = stringResource(R.string.home_settings),
                             modifier = Modifier.size(40.dp),
                             tint = if (isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
                         )
@@ -460,15 +490,20 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Столбец кнопок помощи и поддержки
+            // Столбец кнопок помощи и поддержки. Ширина ограничена: на ТВ кнопки
+            // растягивались во весь экран. Рамка при фокусе — состояние d-pad на
+            // OutlinedButton иначе почти неразличимо.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .padding(horizontal = 16.dp)
             ) {
                 var helpFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = onHelpClick,
+                    border = focusableOutline(helpFocused),
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { helpFocused = it.isFocused }
@@ -485,6 +520,7 @@ fun MainScreen(
                 var supportFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = onSupportClick,
+                    border = focusableOutline(supportFocused),
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { supportFocused = it.isFocused }
@@ -502,6 +538,7 @@ fun MainScreen(
                 var reportIssueFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = onReportIssueClick,
+                    border = focusableOutline(reportIssueFocused),
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { reportIssueFocused = it.isFocused }
@@ -518,6 +555,7 @@ fun MainScreen(
                 var leaveReviewFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = onLeaveReviewClick,
+                    border = focusableOutline(leaveReviewFocused),
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { leaveReviewFocused = it.isFocused }

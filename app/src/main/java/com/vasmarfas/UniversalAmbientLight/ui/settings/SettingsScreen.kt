@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,10 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -42,7 +45,9 @@ import com.vasmarfas.UniversalAmbientLight.common.util.DebugInfoHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.openAccessibilitySettings
 import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 import com.vasmarfas.UniversalAmbientLight.R
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +71,10 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.pref_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 }
             )
@@ -134,10 +142,15 @@ fun SettingsScreen(
     }
 
     if (state.showDebugDialog) {
-        val debugInfo = remember { DebugInfoHelper.getDebugInfo(context) }
+        // Сбор информации читает /proc и перечисляет кодеки — на ТВ-приставках это сотни
+        // миллисекунд, и синхронно в композиции он подвешивал бы кадр открытия диалога
+        var debugInfo by remember { mutableStateOf("…") }
+        LaunchedEffect(Unit) {
+            debugInfo = withContext(Dispatchers.IO) { DebugInfoHelper.getDebugInfo(context) }
+        }
         AlertDialog(
             onDismissRequest = { state.showDebugDialog = false },
-            title = { Text("Debug Info") },
+            title = { Text(stringResource(R.string.debug_info_title)) },
             text = {
                 val scrollState = rememberScrollState()
                 val focusRequester = remember { FocusRequester() }
@@ -181,15 +194,16 @@ fun SettingsScreen(
                             context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val clip = ClipData.newPlainText("Debug Info", debugInfo)
                         clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.debug_info_copied, Toast.LENGTH_SHORT)
+                            .show()
                     }
                 ) {
-                    Text("Copy")
+                    Text(stringResource(R.string.action_copy))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { state.showDebugDialog = false }) {
-                    Text("Close")
+                    Text(stringResource(R.string.action_close))
                 }
             }
         )

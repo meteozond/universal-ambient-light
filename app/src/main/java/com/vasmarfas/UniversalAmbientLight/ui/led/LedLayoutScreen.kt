@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -204,7 +204,7 @@ fun LedLayoutScreen(
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            Icons.Default.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.action_back)
                         )
                     }
@@ -242,14 +242,6 @@ fun LedLayoutScreen(
                         if (sideLeft != "not_installed") total += leftLed.coerceAtLeast(0)
                         total
                     }
-
-                    Text(
-                        text = stringResource(R.string.pref_title_led_layout),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
                         text = stringResource(R.string.led_layout_total_leds, totalLeds),
@@ -354,32 +346,28 @@ fun LedLayoutScreen(
                         onCaptureMarginTopTextChange = { newText ->
                             captureMarginTopText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_top, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_top, value)
                             }
                         },
                         captureMarginRightText = captureMarginRightText,
                         onCaptureMarginRightTextChange = { newText ->
                             captureMarginRightText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_right, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_right, value)
                             }
                         },
                         captureMarginBottomText = captureMarginBottomText,
                         onCaptureMarginBottomTextChange = { newText ->
                             captureMarginBottomText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_bottom, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_bottom, value)
                             }
                         },
                         captureMarginLeftText = captureMarginLeftText,
                         onCaptureMarginLeftTextChange = { newText ->
                             captureMarginLeftText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_left, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_left, value)
                             }
                         },
                         ledOffsetText = ledOffsetText,
@@ -449,14 +437,6 @@ fun LedLayoutScreen(
                         .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = stringResource(R.string.pref_title_led_layout),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
                     val totalLeds = remember(
                         topLed,
                         rightLed,
@@ -579,32 +559,28 @@ fun LedLayoutScreen(
                         onCaptureMarginTopTextChange = { newText ->
                             captureMarginTopText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_top, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_top, value)
                             }
                         },
                         captureMarginRightText = captureMarginRightText,
                         onCaptureMarginRightTextChange = { newText ->
                             captureMarginRightText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_right, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_right, value)
                             }
                         },
                         captureMarginBottomText = captureMarginBottomText,
                         onCaptureMarginBottomTextChange = { newText ->
                             captureMarginBottomText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_bottom, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_bottom, value)
                             }
                         },
                         captureMarginLeftText = captureMarginLeftText,
                         onCaptureMarginLeftTextChange = { newText ->
                             captureMarginLeftText = newText
                             newText.toIntOrNull()?.let { value ->
-                                val clamped = value.coerceIn(0, 40)
-                                prefs.putInt(R.string.pref_key_capture_margin_left, clamped)
+                                saveCaptureMargin(prefs, R.string.pref_key_capture_margin_left, value)
                             }
                         },
                         ledOffsetText = ledOffsetText,
@@ -663,7 +639,21 @@ fun LedLayoutScreen(
     }
 }
 
+/**
+ * Пишет отступ стороны и выводит из игры устаревшие общие ключи: они перекрывают
+ * пер-сторонние при чтении, и без сброса экран показывал бы одно, а захват брал другое.
+ */
+private fun saveCaptureMargin(prefs: Preferences, keyRes: Int, value: Int) {
+    prefs.putInt(keyRes, value.coerceIn(0, 40))
+    prefs.putInt(R.string.pref_key_capture_margin, -1)
+    prefs.putInt(R.string.pref_key_capture_margin_horizontal, -1)
+    prefs.putInt(R.string.pref_key_capture_margin_vertical, -1)
+}
+
 private fun sendClearOnce(context: Context) {
+    // Гасить нечего, когда сервис не работает, а startService в этот момент создал бы
+    // пустой foreground-сервис с вечным уведомлением
+    if (!ScreenGrabberService.sInstanceRunning) return
     val intent = android.content.Intent(context, ScreenGrabberService::class.java).apply {
         action = ScreenGrabberService.ACTION_CLEAR
     }

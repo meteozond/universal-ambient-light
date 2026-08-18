@@ -17,9 +17,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.vasmarfas.UniversalAmbientLight.R
 
 /**
@@ -78,6 +80,12 @@ fun LedVisualization(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
+        // Цвета читаем из темы заранее: в светлой теме белые подписи на surface исчезали
+        val labelColor = MaterialTheme.colorScheme.onSurface.toArgb()
+        val disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+        val screenOutline = MaterialTheme.colorScheme.outline
+        val captureOutline = MaterialTheme.colorScheme.tertiary
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -87,16 +95,17 @@ fun LedVisualization(
                 val width = size.width
                 val height = size.height
 
-                // Прямоугольник экрана
-                val screenPadding = 60f
+                // Прямоугольник экрана. Размеры в dp/sp: сырые пиксели на разных
+                // плотностях давали рамку и подписи разной физической величины
+                val screenPadding = 20.dp.toPx()
                 drawRect(
-                    color = Color.Gray.copy(alpha = 0.3f),
+                    color = screenOutline,
                     topLeft = Offset(screenPadding, screenPadding),
                     size = androidx.compose.ui.geometry.Size(
                         width - screenPadding * 2,
                         height - screenPadding * 2
                     ),
-                    style = Stroke(width = 2f)
+                    style = Stroke(width = 1.dp.toPx())
                 )
 
                 // Область захвата со своими отступами по каждой стороне — внутренний прямоугольник
@@ -113,13 +122,13 @@ fun LedVisualization(
                     val innerBottom = height - screenPadding - screenHeight * marginBottom / 100f
 
                     drawRect(
-                        color = Color.Yellow.copy(alpha = 0.35f),
+                        color = captureOutline,
                         topLeft = Offset(innerLeft, innerTop),
                         size = androidx.compose.ui.geometry.Size(
                             innerRight - innerLeft,
                             innerBottom - innerTop
                         ),
-                        style = Stroke(width = 2f)
+                        style = Stroke(width = 1.dp.toPx())
                     )
                 }
 
@@ -160,21 +169,26 @@ fun LedVisualization(
                     }
 
                     val nativeCanvas = drawContext.canvas.nativeCanvas
+                    val labelSize = 11.sp.toPx()
+                    val firstLabelSize = 14.sp.toPx()
                     val enabledPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 20f
+                        color = labelColor
+                        textSize = labelSize
                         textAlign = android.graphics.Paint.Align.CENTER
+                        isAntiAlias = true
                     }
                     val disabledPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.GRAY
-                        textSize = 20f
+                        color = disabledLabelColor
+                        textSize = labelSize
                         textAlign = android.graphics.Paint.Align.CENTER
+                        isAntiAlias = true
                     }
                     val firstLedPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 28f
+                        color = labelColor
+                        textSize = firstLabelSize
                         textAlign = android.graphics.Paint.Align.CENTER
                         isFakeBoldText = true
+                        isAntiAlias = true
                     }
 
                     ledPositions.forEachIndexed { index, ledData ->
@@ -219,9 +233,10 @@ fun LedVisualization(
                             }
                             // Для прямоугольника подпись слегка сдвигаем
                             val textY = if (ledData.rectSize.height > 0) {
-                                ledData.position.y + 7f
+                                ledData.position.y + labelSize / 3f
                             } else {
-                                ledData.position.y + if (index == 0) 10f else 7f
+                                ledData.position.y +
+                                        if (index == 0) firstLabelSize / 3f else labelSize / 3f
                             }
 
                             nativeCanvas.drawText(

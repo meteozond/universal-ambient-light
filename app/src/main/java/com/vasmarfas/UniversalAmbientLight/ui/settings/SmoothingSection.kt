@@ -20,21 +20,25 @@ import com.vasmarfas.UniversalAmbientLight.R
 internal fun ColumnScope.SmoothingSection(prefs: Preferences, state: SettingsScreenState) {
     val context = LocalContext.current
     SettingsGroup(title = stringResource(R.string.pref_group_smoothing)) {
-        CheckBoxPreference(
-            prefs = prefs,
-            keyRes = R.string.pref_key_smoothing_enabled,
-            title = stringResource(R.string.pref_title_smoothing_enabled),
-            onValueChange = { enabled ->
-                val preset = prefs.getString(R.string.pref_key_smoothing_preset, "off")
-                AnalyticsHelper.logSmoothingChanged(context, enabled, preset)
-                AnalyticsHelper.logSettingChanged(
-                    context,
-                    "smoothing_enabled",
-                    enabled.toString()
-                )
-                AnalyticsHelper.updateSmoothingProperty(context, enabled)
-            }
-        )
+        // key: пресет «off» выключает сглаживание записью в prefs, и без пересоздания
+        // переключатель остался бы визуально включённым
+        key(state.smoothingPreset) {
+            CheckBoxPreference(
+                prefs = prefs,
+                keyRes = R.string.pref_key_smoothing_enabled,
+                title = stringResource(R.string.pref_title_smoothing_enabled),
+                onValueChange = { enabled ->
+                    val preset = prefs.getString(R.string.pref_key_smoothing_preset, "off")
+                    AnalyticsHelper.logSmoothingChanged(context, enabled, preset)
+                    AnalyticsHelper.logSettingChanged(
+                        context,
+                        "smoothing_enabled",
+                        enabled.toString()
+                    )
+                    AnalyticsHelper.updateSmoothingProperty(context, enabled)
+                }
+            )
+        }
         ListPreference(
             prefs = prefs,
             keyRes = R.string.pref_key_smoothing_preset,
@@ -70,8 +74,7 @@ internal fun ColumnScope.SmoothingSection(prefs: Preferences, state: SettingsScr
                 keyRes = R.string.pref_key_settling_time,
                 title = stringResource(R.string.pref_title_settling_time),
                 summaryProvider = { value ->
-                    val ms = value?.toIntOrNull() ?: 50
-                    "$ms мс"
+                    context.getString(R.string.unit_ms, value?.toIntOrNull() ?: 50)
                 },
                 keyboardType = KeyboardType.Number,
                 recomposeKey = state.smoothingPreset
@@ -81,8 +84,7 @@ internal fun ColumnScope.SmoothingSection(prefs: Preferences, state: SettingsScr
                 keyRes = R.string.pref_key_output_delay,
                 title = stringResource(R.string.pref_title_output_delay),
                 summaryProvider = { value ->
-                    val ms = value?.toIntOrNull() ?: 0
-                    "$ms мс"
+                    context.getString(R.string.unit_ms, value?.toIntOrNull() ?: 0)
                 },
                 keyboardType = KeyboardType.Number,
                 recomposeKey = state.smoothingPreset

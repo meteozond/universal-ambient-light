@@ -57,10 +57,10 @@ internal fun ColumnScope.GeneralSection(prefs: Preferences, state: SettingsScree
     }
 
     // Отладка
-    SettingsGroup(title = "Debug") {
+    SettingsGroup(title = stringResource(R.string.pref_category_debug)) {
         ClickablePreference(
-            title = "Device Info",
-            summary = "Show device information for debugging",
+            title = stringResource(R.string.pref_title_device_info),
+            summary = stringResource(R.string.pref_summary_device_info),
             onClick = { state.showDebugDialog = true }
         )
     }

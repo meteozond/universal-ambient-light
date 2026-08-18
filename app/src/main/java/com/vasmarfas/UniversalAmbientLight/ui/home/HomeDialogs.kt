@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
@@ -26,7 +28,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
@@ -46,6 +50,8 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.google.zxing.qrcode.QRCodeWriter
 import com.vasmarfas.UniversalAmbientLight.common.util.ReviewHelper
 import com.vasmarfas.UniversalAmbientLight.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Диалоги главного экрана: помощь, оценка приложения, поддержка проекта и QR со ссылкой.
@@ -122,7 +128,8 @@ fun RatingDialog(
     onDismiss: () -> Unit,
     onRatingSelected: (Int) -> Unit,
 ) {
-    var selectedRating by remember { mutableStateOf(0) }
+    // rememberSaveable: выбранная оценка не должна сбрасываться поворотом экрана
+    var selectedRating by rememberSaveable { mutableStateOf(0) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -148,11 +155,12 @@ fun RatingDialog(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Star,
-                                contentDescription = "$i stars",
+                                contentDescription = stringResource(R.string.rating_stars_desc, i),
                                 tint = if (i <= selectedRating) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                    // Не alpha на alpha: в тёмной теме такие звёзды исчезали
+                                    MaterialTheme.colorScheme.outlineVariant
                                 },
                                 modifier = Modifier.size(40.dp)
                             )
@@ -170,7 +178,7 @@ fun RatingDialog(
                 },
                 enabled = selectedRating > 0
             ) {
-                Text("OK")
+                Text(stringResource(R.string.action_ok))
             }
         },
         dismissButton = {
@@ -242,7 +250,10 @@ fun UrlDialog(
     onDismiss: () -> Unit,
     onOpenLink: (() -> Unit)? = null,
 ) {
-    val qrBitmap = remember(url) { generateQRCode(url, 400) }
+    // Генерация — 160 тысяч пикселей; на главном потоке она подвешивала кадр открытия
+    val qrBitmap by produceState<ImageBitmap?>(initialValue = null, url) {
+        value = withContext(Dispatchers.Default) { generateQRCode(url, 400) }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -250,8 +261,11 @@ fun UrlDialog(
             Text(stringResource(R.string.url_dialog_title))
         },
         text = {
+            // Прокрутка — в ландшафте телефона QR с текстом не помещаются в диалог
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -260,9 +274,10 @@ fun UrlDialog(
                     textAlign = TextAlign.Center
                 )
 
-                if (qrBitmap != null) {
+                val qr = qrBitmap
+                if (qr != null) {
                     Image(
-                        bitmap = qrBitmap,
+                        bitmap = qr,
                         contentDescription = stringResource(R.string.url_dialog_qr_description),
                         modifier = Modifier.size(250.dp)
                     )
@@ -307,16 +322,17 @@ private fun generateQRCode(content: String, size: Int): ImageBitmap? {
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size, hints)
 
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(
-                    x,
-                    y,
-                    if (bitMatrix[x, y]) Color.Black.toArgb() else Color.White.toArgb()
-                )
+        val black = Color.Black.toArgb()
+        val white = Color.White.toArgb()
+        val pixels = IntArray(size * size)
+        for (y in 0 until size) {
+            val rowOffset = y * size
+            for (x in 0 until size) {
+                pixels[rowOffset + x] = if (bitMatrix[x, y]) black else white
             }
         }
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
+        bitmap.setPixels(pixels, 0, size, 0, 0, size, size)
 
         bitmap.asImageBitmap()
     } catch (e: Exception) {

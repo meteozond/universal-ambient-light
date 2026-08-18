@@ -160,6 +160,11 @@
     <string name="pref_default_capture_source" translatable="false">screen</string>
 
     <string name="pref_key_camera_corners" translatable="false">pref_key_camera_corners</string>
+    <!-- Код неудачной автоподстройки от сервиса к экрану: у сервиса нет другого способа
+         рассказать интерфейсу, почему экран не нашёлся. Значение с меткой времени, чтобы
+         повтор той же причины тоже дошёл до слушателя. -->
+    <string name="pref_key_camera_detect_result" translatable="false">pref_key_camera_detect_result</string>
+
 
     <!-- Camera auto-sleep -->
     <string name="pref_key_camera_idle_enabled" translatable="false">pref_key_camera_idle_enabled</string>

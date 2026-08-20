@@ -15,6 +15,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.filled.Settings
@@ -32,7 +33,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.view.WindowCompat
 import androidx.navigation.compose.rememberNavController
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
@@ -150,12 +150,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // До super.onCreate(), как рекомендует сама androidx: иначе на части устройств первый
+        // кадр успевает отрисоваться с ещё включённым fitsSystemWindows. enableEdgeToEdge()
+        // не трогает deprecated Window.setStatusBarColor/setNavigationBarColor, на присутствие
+        // которых в байткоде ругается Google Play (даже под API-гейтом).
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Режим edge-to-edge включаем вручную, чтобы не трогать устаревший
-        // LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES, на который ругается Google Play в Android 15.
-        // С Android 15 (API 35) по умолчанию требуется LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS, он доступен с Android 11 (API 30).
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS — то, что с Android 15 (API 35) требуется по
+        // умолчанию для выреза дисплея; доступен с Android 11 (API 30), на более старых —
+        // SHORT_EDGES.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.attributes.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS

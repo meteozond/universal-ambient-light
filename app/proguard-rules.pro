@@ -19,3 +19,12 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# dadb, libadb-android и sun-security-android не несут собственных consumer-правил (в отличие
+# от usb-serial-for-android и conscrypt-android, у тех proguard.txt уже в самом AAR) и разбирают
+# протокол ADB/крипто через собственные внутренние классы — сузить до конкретных точек входа
+# без глубокого рантайм-тестирования всех ADB-путей рискованно, поэтому просто не трогаем эти
+# пакеты, как и сам conscrypt делает для себя.
+-keep class dadb.** { *; }
+-keep class io.github.muntashirakon.adb.** { *; }
+-keep class android.sun.** { *; }

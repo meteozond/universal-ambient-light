@@ -88,7 +88,8 @@ android {
             manifestPlaceholders["firebasePerfDeactivated"] = hasDummyFirebase.toString()
         }
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

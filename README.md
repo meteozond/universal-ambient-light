@@ -1,4 +1,4 @@
-<img width="1280" height="640" alt="Universal Ambient Light" src="app/src/main/res/drawable/banner.png" />
+<img width="1280" height="720" alt="Universal Ambient Light" src="docs/banner.png" />
 
 # Universal Ambient Light
 

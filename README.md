@@ -160,6 +160,7 @@ against a live feed.
 - **Port**: `4048` (DDP) or `19446` (UDP Raw).
 - **Protocol**: DDP (Preferred).
 - **Color Order**: Ensure this matches your WLED settings (e.g., GRB for WS2812B).
+- **RGBW**: DDP only. Port `19446` is WLED's Hyperion input: it carries no white channel and is capped at 490 LEDs.
 - [WLED Documentation](https://kno.wled.ge/)
 
 #### Adalight (USB)
@@ -223,6 +224,22 @@ WS2812B GND  → GND Arduino
 
 ## Android TV Features
 This application is fully optimized for Android TV, including support for the Leanback Launcher and D-pad navigation. For easier text entry (IP addresses), we recommend using the "Google TV" or "Android TV Remote" app on your phone.
+
+## External Control (KeyMapper, Tasker, remote buttons)
+The app exposes a transparent toggle activity that any automation tool able to start an activity can use — for example [KeyMapper](https://github.com/keymapperorg/KeyMapper) to bind a remote button:
+
+- Component: `com.vasmarfas.UniversalAmbientLight/com.vasmarfas.UniversalAmbientLight.common.ToggleActivity`
+- Without an action it toggles: stops the light if it is running, otherwise starts it.
+- With action `com.vasmarfas.UniversalAmbientLight.action.TURN_ON` it only starts, with `com.vasmarfas.UniversalAmbientLight.action.TURN_OFF` it only stops.
+
+Test from adb:
+
+```
+adb shell am start -n com.vasmarfas.UniversalAmbientLight/com.vasmarfas.UniversalAmbientLight.common.ToggleActivity
+adb shell am start -a com.vasmarfas.UniversalAmbientLight.action.TURN_OFF
+```
+
+Starting still shows the system screen-capture dialog unless a capture method that does not need MediaProjection is selected (Accessibility, Scrcpy/ADB, Screencap, Camera).
 
 ## Important Notes
 

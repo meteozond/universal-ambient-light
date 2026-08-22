@@ -260,7 +260,7 @@
   <string name="setup_required_title">Setup required</string>
   <string name="setup_required_open_settings">Open settings</string>
   <string name="setup_required_cancel">Cancel</string>
-  <string name="error_invalid_led_counts">Horizontal &amp; vertical LED counts must be set and greater than 0</string>
+  <string name="error_invalid_led_counts">Total LED count is 0 — set the per-side LED counts in Settings → LED Layout</string>
   <string name="error_server_unreachable">Could not connect to the hyperion server. Check your settings and make sure hyperion is running</string>
   <string name="error_adalight_unreachable">Could not connect to Adalight device. Make sure: 1) Device is connected via USB OTG cable, 2) USB permission is granted when prompted, 3) Correct baud rate is set in settings</string>
   <string name="error_connection_lost">The connection to your hyperion server has been lost, now stopping the grabber</string>
@@ -375,6 +375,7 @@
     <item>ddp</item>
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
+  <string name="pref_summary_wled_rgbw_raw">Ignored on port 19446: it has no white channel. Use DDP for RGBW strips</string>
   <string name="pref_title_wled_brightness">WLED brightness</string>
   <string name="pref_summary_wled_brightness_max">255 — colors are sent unchanged</string>
   <!-- Home Assistant -->

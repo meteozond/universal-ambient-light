@@ -262,7 +262,7 @@
   <string name="setup_required_title">Нужно настроить подключение</string>
   <string name="setup_required_open_settings">Открыть настройки</string>
   <string name="setup_required_cancel">Отмена</string>
-  <string name="error_invalid_led_counts">Количество LED должно быть указано и больше 0</string>
+  <string name="error_invalid_led_counts">Суммарное число LED равно 0 — задайте количество по сторонам в Настройки → Раскладка LED</string>
   <string name="error_server_unreachable">Не удалось подключиться к серверу. Проверьте настройки и запущен ли сервер</string>
   <string name="error_adalight_unreachable">Не удалось подключиться к Adalight. Убедитесь: 1) Устройство подключено через USB OTG, 2) Разрешение USB предоставлено, 3) Верная скорость (baud rate)</string>
   <string name="error_connection_lost">Связь с сервером потеряна, остановка захвата</string>
@@ -377,6 +377,7 @@
     <item>ddp</item>
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
+  <string name="pref_summary_wled_rgbw_raw">На порту 19446 не работает — там нет белого канала. Для RGBW-ленты нужен DDP</string>
   <string name="pref_title_wled_brightness">Яркость WLED</string>
   <string name="pref_summary_wled_brightness_max">255 — цвета уходят без изменений</string>
   <!-- Home Assistant -->

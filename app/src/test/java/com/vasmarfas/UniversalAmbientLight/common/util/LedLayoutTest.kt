@@ -35,4 +35,16 @@ class LedLayoutTest {
         val layout = LedLayout(topLed = 10, bottomLed = 10, sideBottom = "disabled")
         assertEquals(20, layout.ledCount())
     }
+
+    @Test
+    fun `the configured count accepts per-side counts with zeroed legacy values`() {
+        // Сценарий issue #45: стороны заданы, а в старых ключах остался ноль
+        val layout = LedLayout(topLed = 92, rightLed = 54, bottomLed = 92, leftLed = 54)
+        assertEquals(292, layout.configuredLedCount())
+    }
+
+    @Test
+    fun `the configured count reports zero for an empty layout`() {
+        assertEquals(0, LedLayout().configuredLedCount())
+    }
 }

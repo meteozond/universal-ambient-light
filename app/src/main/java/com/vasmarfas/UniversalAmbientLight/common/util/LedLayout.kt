@@ -46,14 +46,21 @@ data class LedLayout(
      * с разбором кадра здесь ломало бы сглаживание: clear() и живые кадры имели бы
      * разную длину.
      */
-    fun ledCount(): Int {
+    fun ledCount(): Int = max(configuredLedCount(), 1)
+
+    /**
+     * То же число, но без страховочного минимума: 0 и меньше означает, что раскладка
+     * не задана. По этому значению validateSettings отличает пустые настройки от
+     * настроенных, поэтому проверка и отправка не могут разойтись.
+     */
+    fun configuredLedCount(): Int {
         var total = 0
         if (sideTop != "not_installed") total += topLed
         if (sideRight != "not_installed") total += rightLed
         if (sideBottom != "not_installed") total += bottomLed
         if (sideLeft != "not_installed") total += leftLed
         if (total <= 0) total = 2 * (xLed + yLed)
-        return max(total, 1)
+        return total
     }
 
     companion object {

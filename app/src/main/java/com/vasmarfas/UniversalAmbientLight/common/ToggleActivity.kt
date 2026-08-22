@@ -22,11 +22,20 @@ class ToggleActivity : AppCompatActivity() {
 
         val serviceRunning = checkForInstance()
 
-        if (serviceRunning) {
-            stopService()
-            finish()
-        } else {
-            requestPermission()
+        // Явный action приходит от внешней автоматизации (KeyMapper, Tasker, adb);
+        // без action активность остаётся переключателем, как ярлык на рабочем столе.
+        when (intent?.action) {
+            ACTION_TURN_ON -> if (serviceRunning) finish() else requestPermission()
+            ACTION_TURN_OFF -> {
+                if (serviceRunning) stopService()
+                finish()
+            }
+            else -> if (serviceRunning) {
+                stopService()
+                finish()
+            } else {
+                requestPermission()
+            }
         }
     }
 
@@ -63,28 +72,31 @@ class ToggleActivity : AppCompatActivity() {
             prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
 
         val requestMediaProjection = {
-            val manager =
-                getSystemService(MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
-            if (manager != null) {
-                try {
-                    startActivityForResult(
-                        manager.createScreenCaptureIntent(),
-                        REQUEST_MEDIA_PROJECTION
-                    )
-                } catch (e: ActivityNotFoundException) {
-                    // В части сторонних прошивок Android TV нет системной
-                    // MediaProjectionPermissionActivity из SystemUI. Тогда запускаем сервис
-                    // напрямую, без MediaProjection, если выбранный метод это позволяет.
-                    Log.w(TAG, "MediaProjection permission dialog unavailable: ${e.message}")
-                    val captureMethod =
-                        prefs.getString(R.string.pref_key_capture_method, "media_projection")
-                    if (captureMethod != "media_projection") {
-                        startScreenRecorderDirect(this)
+            val captureMethod =
+                prefs.getString(R.string.pref_key_capture_method, "media_projection")
+            if (captureMethod != "media_projection") {
+                // Методы без MediaProjection поднимаем сразу, как в BootActivity: иначе
+                // включение с пульта или ярлыка каждый раз упиралось бы в диалог захвата.
+                startScreenRecorderDirect(this)
+                finish()
+            } else {
+                val manager =
+                    getSystemService(MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+                if (manager != null) {
+                    try {
+                        startActivityForResult(
+                            manager.createScreenCaptureIntent(),
+                            REQUEST_MEDIA_PROJECTION
+                        )
+                    } catch (e: ActivityNotFoundException) {
+                        // В части сторонних прошивок Android TV нет системной
+                        // MediaProjectionPermissionActivity из SystemUI — стартовать нечем.
+                        Log.w(TAG, "MediaProjection permission dialog unavailable: ${e.message}")
+                        finish()
                     }
+                } else {
                     finish()
                 }
-            } else {
-                finish()
             }
         }
 
@@ -115,6 +127,9 @@ class ToggleActivity : AppCompatActivity() {
     companion object {
         const val REQUEST_MEDIA_PROJECTION = 1
         private const val TAG = "ToggleActivity"
+
+        const val ACTION_TURN_ON = "com.vasmarfas.UniversalAmbientLight.action.TURN_ON"
+        const val ACTION_TURN_OFF = "com.vasmarfas.UniversalAmbientLight.action.TURN_OFF"
 
         // Запуск сервиса — через обёртку BootActivity: на Android 12+ голый
         // startForegroundService из onActivityResult падает с

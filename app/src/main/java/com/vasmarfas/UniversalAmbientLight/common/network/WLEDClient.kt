@@ -46,6 +46,9 @@ class WLEDClient(
     private var mRgbwFallbackLogged = false
 
     @Volatile
+    private var mRawTruncationLogged = false
+
+    @Volatile
     private var mConnected = false
 
     @Volatile
@@ -79,7 +82,7 @@ class WLEDClient(
 
         // Если порт не задан, берём значение по умолчанию для выбранного протокола
         if (port <= 0 || port == 80) {
-            mPort = if (mProtocol == Protocol.DDP) DEFAULT_PORT_DDP else DEFAULT_PORT_DRGB
+            mPort = if (mProtocol == Protocol.DDP) DEFAULT_PORT_DDP else HYPERION_RAW_PORT
         } else {
             mPort = port
         }
@@ -437,9 +440,15 @@ class WLEDClient(
         return packets
     }
 
-    // Устаревший UDP raw (DRGB/DNRGB)
+    // Устаревший UDP raw. На порту 19446 WLED слушает приёмник Hyperion (сырой RGB),
+    // на остальных портах — свои realtime-протоколы DRGB/DRGBW/DNRGB с заголовком.
     @Throws(IOException::class)
     private fun sendUdpRaw(leds: Array<ColorRgb>) {
+        if (mPort == HYPERION_RAW_PORT) {
+            sendHyperionRaw(leds)
+            return
+        }
+
         val ledCount = leds.size
         var packet: ByteArray
 
@@ -478,15 +487,47 @@ class WLEDClient(
         }
     }
 
+    /**
+     * Приёмник Hyperion в WLED (udpRgbPort, по умолчанию 19446): поток RGB без заголовка,
+     * ровно три байта на светодиод, белого канала в нём нет. Пакет длиннее 1472 байт
+     * прошивка отбрасывает целиком.
+     */
+    @Throws(IOException::class)
+    private fun sendHyperionRaw(leds: Array<ColorRgb>) {
+        if (mRgbw && !mRgbwFallbackLogged) {
+            mRgbwFallbackLogged = true
+            Log.w(
+                TAG,
+                "Hyperion raw port $HYPERION_RAW_PORT carries no white channel; sending RGB. " +
+                        "Use DDP for RGBW."
+            )
+        }
+        if (leds.size > MAX_LEDS_HYPERION_RAW && !mRawTruncationLogged) {
+            mRawTruncationLogged = true
+            Log.w(
+                TAG,
+                "Hyperion raw port accepts up to $MAX_LEDS_HYPERION_RAW LEDs, got ${leds.size}; " +
+                        "the rest is dropped. Use DDP for longer strips."
+            )
+        }
+
+        val ledCount = min(leds.size, MAX_LEDS_HYPERION_RAW)
+        val packet = ByteArray(ledCount * 3)
+        var idx = 0
+        for (i in 0 until ledCount) {
+            idx = writeRgb(packet, idx, leds[i], mColorOrder)
+        }
+        sendPacket(packet)
+    }
+
     private fun createDRGBPacket(leds: Array<ColorRgb>): ByteArray {
         val packet = ByteArray(2 + leds.size * 3)
         packet[0] = PROTOCOL_DRGB
         packet[1] = WLED_TIMEOUT_SECONDS
 
-        val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
         var idx = 2
         for (led in leds) {
-            idx = writeRgb(packet, idx, led, effectiveOrder)
+            idx = writeRgb(packet, idx, led, mColorOrder)
         }
         return packet
     }
@@ -497,10 +538,9 @@ class WLEDClient(
         packet[0] = PROTOCOL_DRGBW
         packet[1] = WLED_TIMEOUT_SECONDS
 
-        val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
         var idx = 2
         for (led in leds) {
-            idx = writePixel(packet, idx, led, effectiveOrder)
+            idx = writePixel(packet, idx, led, mColorOrder)
         }
         return packet
     }
@@ -512,26 +552,11 @@ class WLEDClient(
         packet[2] = ((startIndex shr 8) and 0xFF).toByte()
         packet[3] = (startIndex and 0xFF).toByte()
 
-        val effectiveOrder = normalizeOrderForUdpRaw(mColorOrder)
         var idx = 4
         for (i in 0 until count) {
-            idx = writeRgb(packet, idx, leds[startIndex + i], effectiveOrder)
+            idx = writeRgb(packet, idx, leds[startIndex + i], mColorOrder)
         }
         return packet
-    }
-
-    private fun normalizeOrderForUdpRaw(order: String): String {
-        // В режиме UDP raw WLED на части конфигураций раскладывает каналы иначе, чем в DDP.
-        // Сдвигаем порядок на шаг вправо, чтобы подписи порядка цветов в UI означали одно и то же в обоих протоколах.
-        return when (order.lowercase()) {
-            "rgb" -> "brg"
-            "grb" -> "bgr"
-            "brg" -> "rbg"
-            "rbg" -> "gbr"
-            "gbr" -> "grb"
-            "bgr" -> "rgb"
-            else -> "brg"
-        }
     }
 
     private fun bytesPerPixel(): Int = if (mRgbw) 4 else 3
@@ -619,7 +644,9 @@ class WLEDClient(
         private const val TAG = "WLEDClient"
         private const val logsEnabled = false
         private const val DEFAULT_PORT_DDP = 4048
-        private const val DEFAULT_PORT_DRGB = 19446
+
+        /** udpRgbPort в WLED — приёмник Hyperion, сырой RGB без заголовка. */
+        private const val HYPERION_RAW_PORT = 19446
 
         // Константы DDP
         private const val DDP_HEADER_SIZE = 10
@@ -633,6 +660,9 @@ class WLEDClient(
         private const val PROTOCOL_DNRGB: Byte = 4
         private const val MAX_LEDS_DRGB = 490
         private const val MAX_LEDS_DRGBW = 367
+
+        /** 1470 байт данных — предел приёмника Hyperion (буфер прошивки 1472 байта). */
+        private const val MAX_LEDS_HYPERION_RAW = 490
         private const val MAX_LEDS_PER_PACKET_DNRGB = 489
         private const val WLED_TIMEOUT_SECONDS: Byte = 5
     }

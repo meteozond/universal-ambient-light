@@ -93,6 +93,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="com.vasmarfas.UniversalAmbientLight.action.TURN_ON" />
+                <action android:name="com.vasmarfas.UniversalAmbientLight.action.TURN_OFF" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <service

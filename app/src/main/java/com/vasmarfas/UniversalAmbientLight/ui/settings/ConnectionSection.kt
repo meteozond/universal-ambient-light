@@ -244,6 +244,11 @@ internal fun ColumnScope.ConnectionSection(prefs: Preferences, state: SettingsSc
                 prefs = prefs,
                 keyRes = R.string.pref_key_wled_rgbw,
                 title = stringResource(R.string.pref_title_wled_rgbw),
+                summary = if (state.currentPort == "19446") {
+                    stringResource(R.string.pref_summary_wled_rgbw_raw)
+                } else {
+                    null
+                },
                 onValueChange = { enabled ->
                     AnalyticsHelper.logRgbwChanged(context, enabled)
                     AnalyticsHelper.logSettingChanged(

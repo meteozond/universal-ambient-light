@@ -163,6 +163,7 @@
 - **Port**: `4048` (DDP) или `19446` (UDP Raw).
 - **Протокол**: DDP (предпочтительно).
 - **Цветовая схема**: Убедитесь, что порядок цветов (например, GRB) совпадает с настройками в веб-интерфейсе WLED.
+- **RGBW**: только по DDP. Порт `19446` — это Hyperion-вход WLED: белого канала в нём нет, максимум 490 светодиодов.
 - [Документация WLED](https://kno.wled.ge/)
 
 #### Adalight (USB)
@@ -226,6 +227,22 @@ WS2812B GND  → GND Arduino
 
 ## Особенности для Android TV
 Приложение оптимизировано для управления с пульта (D-pad) и отображается в лаунчере Android TV (Leanback Launcher). Для ввода IP-адресов и настроек также удобно использовать приложение "Google TV" или "Android TV Remote" на смартфоне.
+
+## Внешнее управление (KeyMapper, Tasker, кнопки пульта)
+В приложении есть прозрачная активность-переключатель — её может запускать любой инструмент автоматизации, умеющий стартовать активности, например [KeyMapper](https://github.com/keymapperorg/KeyMapper) для привязки к кнопке пульта:
+
+- Компонент: `com.vasmarfas.UniversalAmbientLight/com.vasmarfas.UniversalAmbientLight.common.ToggleActivity`
+- Без action работает как переключатель: гасит подсветку, если она запущена, иначе запускает.
+- С action `com.vasmarfas.UniversalAmbientLight.action.TURN_ON` только запускает, с `com.vasmarfas.UniversalAmbientLight.action.TURN_OFF` только останавливает.
+
+Проверка через adb:
+
+```
+adb shell am start -n com.vasmarfas.UniversalAmbientLight/com.vasmarfas.UniversalAmbientLight.common.ToggleActivity
+adb shell am start -a com.vasmarfas.UniversalAmbientLight.action.TURN_OFF
+```
+
+При запуске система по-прежнему показывает диалог захвата экрана, если выбран метод захвата через MediaProjection; методы без него (Accessibility, Scrcpy/ADB, Screencap, камера) стартуют без диалога.
 
 ## Важная информация
 

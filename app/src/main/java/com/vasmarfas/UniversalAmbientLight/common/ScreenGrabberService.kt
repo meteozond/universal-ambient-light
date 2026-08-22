@@ -28,6 +28,7 @@ import com.vasmarfas.UniversalAmbientLight.common.network.HomeAssistantLamp
 import com.vasmarfas.UniversalAmbientLight.common.network.HyperionThread
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.AppOptions
+import com.vasmarfas.UniversalAmbientLight.common.util.LedLayout
 import com.vasmarfas.UniversalAmbientLight.common.util.Preferences
 import com.vasmarfas.UniversalAmbientLight.common.util.TclBypass
 import java.util.Objects
@@ -1400,13 +1401,17 @@ class ScreenGrabberService : Service() {
                 }
             }
 
-            val horizontalLEDCount = prefs.getInt(R.string.pref_key_x_led)
-            val verticalLEDCount = prefs.getInt(R.string.pref_key_y_led)
-            if (horizontalLEDCount <= 0 || verticalLEDCount <= 0) {
+            // Проверяем то же число, что реально уходит контроллеру: раскладку по сторонам
+            // с фолбэком на старые горизонталь/вертикаль. Проверка одних старых ключей
+            // отбрасывала валидную посторонную раскладку, если в них когда-то записали 0.
+            val layout = LedLayout.from(prefs)
+            if (layout.configuredLedCount() <= 0) {
                 return SettingsError(
                     "invalid_led_counts",
                     context.getString(R.string.error_invalid_led_counts),
-                    "horizontal: $horizontalLEDCount, vertical: $verticalLEDCount"
+                    "top: ${layout.topLed}, right: ${layout.rightLed}, " +
+                            "bottom: ${layout.bottomLed}, left: ${layout.leftLed}, " +
+                            "x: ${layout.xLed}, y: ${layout.yLed}"
                 )
             }
 

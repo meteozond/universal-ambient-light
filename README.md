@@ -157,10 +157,10 @@ against a live feed.
 
 #### WLED
 - **Host**: Controller IP.
-- **Port**: `4048` (DDP) or `19446` (UDP Raw).
+- **Port**: `4048` (DDP), `19446` (UDP Raw, WLED's Hyperion input) or `21324` (UDP Raw, WLED's own realtime port).
 - **Protocol**: DDP (Preferred).
 - **Color Order**: Ensure this matches your WLED settings (e.g., GRB for WS2812B).
-- **RGBW**: DDP only. Port `19446` is WLED's Hyperion input: it carries no white channel and is capped at 490 LEDs.
+- **RGBW**: works over DDP at any strip length, and over UDP Raw on port `21324` (DRGBW, up to 367 LEDs). Port `19446` is WLED's Hyperion input: raw RGB only, no white channel, capped at 490 LEDs.
 - [WLED Documentation](https://kno.wled.ge/)
 
 #### Adalight (USB)

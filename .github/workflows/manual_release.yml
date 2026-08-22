@@ -5,13 +5,30 @@ on:
   workflow_dispatch:
     inputs:
       track:
-        description: 'Google Play Track (production, beta, alpha, internal)'
+        description: 'Google Play Track'
+        type: choice
         required: true
         default: 'internal'
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+          - custom
+      track_custom:
+        description: 'Track name when Track = custom (a closed testing track created in Play Console). Ignored otherwise.'
+        required: false
+        default: ''
       status:
-        description: 'Release Status (completed, draft, halted, inProgress)'
+        description: 'Release Status'
+        type: choice
         required: true
         default: 'draft'
+        options:
+          - draft
+          - completed
+          - halted
+          - inProgress
       version_name:
         description: 'App versionName (например 0.1.0 или 0.1.0-beta.1)'
         required: true
@@ -236,6 +253,25 @@ jobs:
         name: android-release
         path: dist
 
+    - name: Resolve Google Play track
+      id: gp_track
+      env:
+        TRACK: ${{ inputs.track }}
+        TRACK_CUSTOM: ${{ inputs.track_custom }}
+      run: |
+        # The dropdown cannot accept free text, so "custom" defers to the text field.
+        if [ "$TRACK" = "custom" ]; then
+          if [ -z "$TRACK_CUSTOM" ]; then
+            echo "Track = custom, but no track name was given in Track name field"
+            exit 1
+          fi
+          resolved="$TRACK_CUSTOM"
+        else
+          resolved="$TRACK"
+        fi
+        echo "name=$resolved" >> "$GITHUB_OUTPUT"
+        echo "Publishing to track: $resolved"
+
     - name: Prepare Google Play release notes
       id: gp_notes
       env:
@@ -268,7 +304,7 @@ jobs:
         serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         packageName: com.vasmarfas.UniversalAmbientLight
         releaseFiles: dist/bundle/playstoreRelease/app-playstore-release.aab
-        track: ${{ inputs.track }}
+        track: ${{ steps.gp_track.outputs.name }}
         # Checkbox on → completed + sent for review; off → use the Status field (draft by default).
         status: ${{ inputs.googleplay_send_to_review && 'completed' || inputs.status }}
         changesNotSentForReview: ${{ ! inputs.googleplay_send_to_review }}

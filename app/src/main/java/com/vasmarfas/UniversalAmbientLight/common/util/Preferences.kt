@@ -3,6 +3,7 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Resources
+import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.content.edit
 import java.util.concurrent.ConcurrentHashMap
@@ -91,6 +92,11 @@ class Preferences(context: Context) {
             resources.getResourceEntryName(keyResourceId).replace("pref_key_", "pref_default_")
         val pkg = resources.getResourcePackageName(keyResourceId)
         val resolved = resources.getIdentifier(name, type, pkg)
+        if (resolved == 0) {
+            // Ресурса нет — настройка молча получит 0/false. Так уже случалось, когда
+            // шринкер вырезал pref_default_* из release-сборки (см. res/raw/keep.xml).
+            Log.w(TAG, "No $type default resource for $name, falling back to zero")
+        }
         sDefaultKeyCache[cacheKey] = resolved
         return resolved
     }
@@ -102,6 +108,7 @@ class Preferences(context: Context) {
     }
 
     companion object {
+        private const val TAG = "Preferences"
         private val sDefaultKeyCache = ConcurrentHashMap<Long, Int>()
 
         fun defaultSharedPreferences(context: Context): SharedPreferences =

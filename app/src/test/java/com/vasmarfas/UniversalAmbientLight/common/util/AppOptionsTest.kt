@@ -31,6 +31,19 @@ class AppOptionsTest {
         assertEquals(1, options(4, 4).findDivisor(1921, 1080))
     }
 
+    @Test
+    fun `a zero frame rate is raised to one`() {
+        // Бэкенды захвата делят 1000 на это значение, ноль ронял сервис на старте
+        val options = AppOptions(
+            horizontalLED = 20,
+            verticalLED = 10,
+            frameRate = 0,
+            useAverageColor = false,
+            captureQuality = 100,
+        )
+        assertEquals(1, options.frameRate)
+    }
+
     private fun options(horizontalLED: Int, verticalLED: Int) = AppOptions(
         horizontalLED = horizontalLED,
         verticalLED = verticalLED,

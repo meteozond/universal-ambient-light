@@ -5,7 +5,7 @@ import android.util.Log
 class AppOptions(
     horizontalLED: Int,
     verticalLED: Int,
-    val frameRate: Int,
+    frameRate: Int,
     val useAverageColor: Boolean,
     val captureQuality: Int,
     // Настройки цветокоррекции изменяемые: сервис подставляет сюда правки пользователя
@@ -33,6 +33,10 @@ class AppOptions(
     @Volatile var cameraIdleMotionLevel: Int = 4,
     @Volatile var cameraIdleStaticSleep: Boolean = false,
 ) {
+
+    // Все бэкенды захвата считают интервал кадра как 1000/frameRate, поэтому ноль здесь
+    // означает падение сервиса на старте, а не медленный захват.
+    val frameRate: Int = frameRate.coerceAtLeast(1)
 
     /** Перечитывает поля автосна камеры из настроек. */
     fun refreshCameraIdleSettings(prefs: Preferences) {

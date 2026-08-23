@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Preferences.defaultKey() собирает имя ресурса со значением по умолчанию на лету
+  (pref_key_* -> pref_default_*) и резолвит его через Resources.getIdentifier().
+  Статических ссылок на эти ресурсы в коде нет, поэтому шринкер считает их
+  недостижимыми и вырезает из release-сборки: getIdentifier() возвращает 0, и все
+  числовые и булевы настройки молча получают 0/false.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@integer/pref_default_*,@bool/pref_default_*,@string/pref_default_*" />

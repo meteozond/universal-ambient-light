@@ -28,3 +28,16 @@
 -keep class dadb.** { *; }
 -keep class io.github.muntashirakon.adb.** { *; }
 -keep class android.sun.** { *; }
+
+# UsbPermissionGranterCli запускается из-под root отдельным процессом по полному имени
+# класса: CLASSPATH=<apk> app_process ... (см. UsbRootPermissionHelper.grantSingleDevice).
+# Вызовов из кода у main() нет, поэтому R8 удалял класс целиком, и выдача USB-разрешения
+# с рутом молча отваливалась в release-сборке.
+-keep class com.vasmarfas.UniversalAmbientLight.common.util.UsbPermissionGranterCli {
+    public static void main(java.lang.String[]);
+}
+
+# AmbilightApplication опознаёт баг прошивки по имени класса в стеке (ProfileVerifier
+# бросает NoSuchMethodError там, где framework.jar не соответствует версии Android).
+# Обфускация переименовывала класс, и обход переставал срабатывать именно в release.
+-keepnames class androidx.profileinstaller.**

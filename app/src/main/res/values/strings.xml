@@ -376,6 +376,7 @@
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
   <string name="pref_summary_wled_rgbw_raw">Ignored on port 19446: it has no white channel. Use DDP for RGBW strips</string>
+  <string name="pref_summary_wled_rgbw_white_mode">Needs an RGBW strip in WLED with white calculation set to Manual only or Dual — auto modes recompute white and leave it dark</string>
   <string name="pref_title_wled_brightness">WLED brightness</string>
   <string name="pref_summary_wled_brightness_max">255 — colors are sent unchanged</string>
   <!-- Home Assistant -->

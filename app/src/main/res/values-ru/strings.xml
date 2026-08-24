@@ -378,6 +378,7 @@
   </string-array>
   <string name="pref_title_wled_rgbw">WLED RGBW</string>
   <string name="pref_summary_wled_rgbw_raw">На порту 19446 не работает — там нет белого канала. Для RGBW-ленты нужен DDP</string>
+  <string name="pref_summary_wled_rgbw_white_mode">Нужна лента RGBW в WLED и расчёт белого Manual only или Dual — в автоматических режимах WLED пересчитывает белый сам, и он остаётся тёмным</string>
   <string name="pref_title_wled_brightness">Яркость WLED</string>
   <string name="pref_summary_wled_brightness_max">255 — цвета уходят без изменений</string>
   <!-- Home Assistant -->

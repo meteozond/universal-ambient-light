@@ -161,6 +161,7 @@ against a live feed.
 - **Protocol**: DDP (Preferred).
 - **Color Order**: Ensure this matches your WLED settings (e.g., GRB for WS2812B).
 - **RGBW**: works over DDP at any strip length, and over UDP Raw on port `21324` (DRGBW, up to 367 LEDs). Port `19446` is WLED's Hyperion input: raw RGB only, no white channel, capped at 490 LEDs.
+  The app extracts the white channel itself (the component common to R, G and B is moved to W), so in WLED the strip type must be RGBW and **Calculate white channel from RGB** must be set to `Manual only` or `Dual`. In the automatic modes WLED discards the white value it receives and recomputes it from the already-reduced RGB, which comes out as zero: the white LEDs stay dark and the colors look washed out.
 - [WLED Documentation](https://kno.wled.ge/)
 
 #### Adalight (USB)

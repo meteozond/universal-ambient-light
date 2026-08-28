@@ -59,6 +59,7 @@
 #endif
 
 #define DEFAULT_DEVICE "/dev/video12"
+#define VDIN_ATTR_FMT "/sys/class/vdin/vdin%d/attr"
 #define PORT_POST_BLEND 0xa007
 #define START_VDIN (1u << 28)
 
@@ -87,6 +88,30 @@ static volatile int g_running = 1;
 static void signal_handler(int sig) {
     (void)sig;
     g_running = 0;
+}
+
+/*
+ * Подбирает хвост от предыдущего запуска.
+ *
+ * Если прошлый сервер был убит на ходу, драйвер захват не освобождает: счётчик
+ * открытий остаётся ненулевым, обратная запись продолжает работать, и регистры
+ * дисплея не возвращаются в исходное — на экране остаётся мусор. Штатная команда
+ * остановки этот хвост подбирает, поэтому даём её перед началом работы. Когда
+ * освобождать нечего, команда просто ничего не делает.
+ */
+static void release_stale_capture(int vdin) {
+    char path[64];
+    int fd;
+
+    snprintf(path, sizeof(path), VDIN_ATTR_FMT, vdin);
+    fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    if (write(fd, "v4l2stop", 8) < 0) {
+        /* Права есть только у root; без них просто работаем как раньше. */
+    }
+    close(fd);
+    /* Драйверу нужно время на остановку: следующий кадр иначе застанет её. */
+    usleep(200000);
 }
 
 static int xioctl(int fd, unsigned long req, void *arg) {
@@ -143,6 +168,8 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, signal_handler);
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
+
+    release_stale_capture(vdin);
 
     fd = open(dev, O_RDWR);
     if (fd < 0) {

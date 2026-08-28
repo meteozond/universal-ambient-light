@@ -2,6 +2,7 @@ package com.vasmarfas.UniversalAmbientLight.common.util
 
 import android.content.Context
 import android.hardware.usb.UsbManager
+import com.vasmarfas.UniversalAmbientLight.common.network.LightpackClient
 import android.util.Log
 import androidx.annotation.WorkerThread
 import com.vasmarfas.UniversalAmbientLight.common.util.UsbRootPermissionHelper.grantPermissionViaRootAsync
@@ -83,17 +84,24 @@ object UsbRootPermissionHelper {
     fun grantPermissionViaRoot(context: Context): Boolean {
         val usbManager =
             context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
-        val drivers = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
-        if (drivers.isEmpty()) {
-            Log.w(TAG, "No USB serial devices found")
+        // Разрешение нужно и последовательным устройствам, и Lightpack: он подключается
+        // как устройство ввода, и общий перебор портов его не находит.
+        val devices = UsbSerialProberFactory.getProber().findAllDrivers(usbManager)
+            .map { it.device }
+            .toMutableList()
+        LightpackClient.findDevice(context)?.let { lightpack ->
+            if (devices.none { it.deviceId == lightpack.deviceId }) devices.add(lightpack)
+        }
+
+        if (devices.isEmpty()) {
+            Log.w(TAG, "No USB devices found")
             return false
         }
 
         val uid = android.os.Process.myUid()
         var anyGranted = false
 
-        for (driver in drivers) {
-            val device = driver.device
+        for (device in devices) {
             if (usbManager.hasPermission(device)) {
                 Log.d(TAG, "Already have permission for ${device.deviceName}")
                 anyGranted = true

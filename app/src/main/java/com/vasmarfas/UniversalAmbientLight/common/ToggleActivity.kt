@@ -102,10 +102,10 @@ class ToggleActivity : AppCompatActivity() {
 
         // ToggleActivity вызывают ярлыком с рабочего стола и внешними действиями.
         // Для Adalight сначала берём разрешение на USB, иначе пришлось бы нажимать дважды.
-        if ("adalight".equals(connectionType, ignoreCase = true)) {
+        if (UsbSerialPermissionHelper.usesUsb(connectionType)) {
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this,
-                device = null,
+                device = UsbSerialPermissionHelper.findDeviceForConnection(this, connectionType),
                 onReady = requestMediaProjection,
                 onDenied = { finish() },
                 showToast = true,

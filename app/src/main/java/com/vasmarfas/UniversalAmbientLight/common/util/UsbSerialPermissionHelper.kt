@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import com.vasmarfas.UniversalAmbientLight.common.network.LightpackClient
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -30,6 +31,23 @@ object UsbSerialPermissionHelper {
 
     @Volatile
     private var lastRequestedDeviceId: Int? = null
+
+    /** Типы подключения, которым нужен доступ к USB. */
+    private val USB_CONNECTION_TYPES = setOf("adalight", "lightpack")
+
+    fun usesUsb(connectionType: String?): Boolean =
+        connectionType != null && connectionType.lowercase() in USB_CONNECTION_TYPES
+
+    /**
+     * Находит устройство, которому нужно разрешение при выбранном типе подключения.
+     * Lightpack опознаётся по своим номерам, остальное — общим перебором последовательных портов.
+     */
+    fun findDeviceForConnection(context: Context, connectionType: String?): UsbDevice? =
+        if ("lightpack".equals(connectionType, ignoreCase = true)) {
+            LightpackClient.findDevice(context)
+        } else {
+            findFirstSerialDevice(context)
+        }
 
     fun hasAnySerialDevice(context: Context): Boolean {
         val usbManager =

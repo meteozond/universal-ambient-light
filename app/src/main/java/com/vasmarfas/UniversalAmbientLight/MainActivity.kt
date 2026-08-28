@@ -294,10 +294,10 @@ class MainActivity : ComponentActivity() {
         val prefs = Preferences(this)
         val connectionType =
             prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
-        if ("adalight".equals(connectionType, ignoreCase = true)) {
+        if (UsbSerialPermissionHelper.usesUsb(connectionType)) {
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this,
-                device = null,
+                device = UsbSerialPermissionHelper.findDeviceForConnection(this, connectionType),
                 onReady = { /* already granted */ },
                 onDenied = null,
                 showToast = false
@@ -544,14 +544,14 @@ class MainActivity : ComponentActivity() {
         val connectionType =
             prefs.getString(R.string.pref_key_connection_type, "hyperion") ?: "hyperion"
 
-        if (connectionType != "adalight") {
+        if (!UsbSerialPermissionHelper.usesUsb(connectionType)) {
             onReady()
             return
         }
 
         UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
             context = this,
-            device = null,
+            device = UsbSerialPermissionHelper.findDeviceForConnection(this, connectionType),
             onReady = onReady,
             onDenied = null,
             showToast = true,

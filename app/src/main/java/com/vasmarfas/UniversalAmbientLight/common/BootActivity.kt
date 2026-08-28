@@ -50,10 +50,10 @@ class BootActivity : AppCompatActivity() {
         }
 
         // Для Adalight разрешение на USB получаем ДО запуска любого режима захвата
-        if ("adalight".equals(connectionType, ignoreCase = true)) {
+        if (UsbSerialPermissionHelper.usesUsb(connectionType)) {
             UsbSerialPermissionHelper.ensurePermissionForSerialDevice(
                 context = this,
-                device = null,
+                device = UsbSerialPermissionHelper.findDeviceForConnection(this, connectionType),
                 onReady = { startCaptureAfterPermission(captureMethod) },
                 onDenied = { finish() },
                 showToast = true

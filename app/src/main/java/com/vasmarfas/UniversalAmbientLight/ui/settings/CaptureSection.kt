@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vasmarfas.UniversalAmbientLight.common.AccessibilityCaptureService
+import com.vasmarfas.UniversalAmbientLight.common.AmlogicWbCaptureEncoder
 import com.vasmarfas.UniversalAmbientLight.common.MtkThalCaptureEncoder
 import com.vasmarfas.UniversalAmbientLight.common.util.AnalyticsHelper
 import com.vasmarfas.UniversalAmbientLight.common.util.ColorProcessor
@@ -75,6 +76,10 @@ internal fun ColumnScope.CaptureSection(prefs: Preferences, state: SettingsScree
                     entryValues.forEachIndexed { index, value ->
                         when (value) {
                             "mtk_thal_capture" -> if (!MtkThalCaptureEncoder.isAvailable()) disabled.add(
+                                index
+                            )
+
+                            "aml_wb_capture" -> if (!AmlogicWbCaptureEncoder.isAvailable()) disabled.add(
                                 index
                             )
                         }

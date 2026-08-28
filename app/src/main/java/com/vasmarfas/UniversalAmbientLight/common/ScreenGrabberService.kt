@@ -1044,6 +1044,28 @@ class ScreenGrabberService : Service() {
             return
         }
 
+        if (method == "aml_wb_capture") {
+            if (DEBUG) Log.v(TAG, "Creating Amlogic write-back encoder")
+            val encoder = AmlogicWbCaptureEncoder(
+                this.applicationContext,
+                receiverFor(thread),
+                metrics.widthPixels,
+                metrics.heightPixels,
+                options,
+                onFatalError = { errorMsg ->
+                    // Колбэк приходит из потока энкодера — состояние сервиса и
+                    // startForeground трогаем только с главного
+                    mHandler?.post {
+                        mStartError = errorMsg
+                        haltStartup()
+                    }
+                }
+            )
+            mActiveBackend = encoder
+            encoder.sendStatus()
+            return
+        }
+
         if (method == "mtk_thal_capture") {
             if (DEBUG) Log.v(TAG, "Creating MTK THAL Capture encoder")
             val encoder = MtkThalCaptureEncoder(

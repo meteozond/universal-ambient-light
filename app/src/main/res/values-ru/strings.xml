@@ -133,6 +133,7 @@
     <item>ADB (Скриншот, ~200мс)</item>
     <item>Accessibility (Android 11+)</item>
     <item>MTK аппаратный захват (Root)</item>
+    <item>Amlogic аппаратный захват (Root)</item>
   </string-array>
   <string-array name="pref_list_capture_method_values">
     <item>media_projection</item>
@@ -143,6 +144,7 @@
     <item>adb_local</item>
     <item>accessibility</item>
     <item>mtk_thal_capture</item>
+    <item>aml_wb_capture</item>
   </string-array>
 
   <string name="pref_title_adb_port">ADB Порт</string>

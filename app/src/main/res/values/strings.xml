@@ -132,6 +132,7 @@
     <item>ADB (Screenshot, ~200ms)</item>
     <item>Accessibility (Android 11+)</item>
     <item>MTK Hardware Capture (Root)</item>
+    <item>Amlogic Write-back Capture (Root)</item>
   </string-array>
   <string-array name="pref_list_capture_method_values">
     <item>media_projection</item>
@@ -142,6 +143,7 @@
     <item>adb_local</item>
     <item>accessibility</item>
     <item>mtk_thal_capture</item>
+    <item>aml_wb_capture</item>
   </string-array>
 
   <string name="pref_title_adb_port">ADB Port</string>

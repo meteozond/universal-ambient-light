@@ -284,12 +284,14 @@
     <item>WLED</item>
     <item>Adalight</item>
     <item>Home Assistant</item>
+    <item>Lightpack (USB)</item>
   </string-array>
   <string-array name="pref_list_connection_type_values">
     <item>hyperion</item>
     <item>wled</item>
     <item>adalight</item>
     <item>homeassistant</item>
+    <item>lightpack</item>
   </string-array>
   <string name="pref_title_adalight_baudrate">Adalight Baud Rate</string>
   <string-array name="pref_list_adalight_baudrate">

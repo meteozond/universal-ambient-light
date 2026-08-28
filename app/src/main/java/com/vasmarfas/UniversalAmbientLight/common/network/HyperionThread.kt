@@ -323,6 +323,11 @@ class HyperionThread(
                 mContext, mPriority, mBaudRate, mAdalightProtocol,
                 mSmoothingEnabled, mSmoothingPreset, mSettlingTime, mOutputDelayMs, mUpdateFrequency
             )
+        } else if ("lightpack".equals(mConnectionType, ignoreCase = true)) {
+            LightpackClient(
+                mContext, mPriority,
+                mSmoothingEnabled, mSmoothingPreset, mSettlingTime, mOutputDelayMs, mUpdateFrequency
+            )
         } else if ("homeassistant".equals(mConnectionType, ignoreCase = true)) {
             HomeAssistantClient(
                 host,

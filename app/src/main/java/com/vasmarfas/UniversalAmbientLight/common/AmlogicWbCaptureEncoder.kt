@@ -75,15 +75,18 @@ class AmlogicWbCaptureEncoder(
     }
 
     private fun calculateCaptureDimensions() {
-        // Для выборки цветов хватает мелкой картинки, а уменьшает её сам VDIN.
         // Нулевые метрики (часть прошивок на старте) заменяем на 16:9.
         val aspectRatio = if (mScreenWidth > 0 && mScreenHeight > 0) {
             mScreenWidth.toFloat() / mScreenHeight.toFloat()
         } else {
             16f / 9f
         }
-        mCaptureWidth = CAPTURE_WIDTH
-        mCaptureHeight = (mCaptureWidth / aspectRatio).roundToInt()
+        // Размер берём из настройки качества, как остальные способы захвата:
+        // там задаётся высота кадра. Уменьшает движок, так что крупная сетка
+        // почти ничего не стоит.
+        val height = mOptions.captureQuality.coerceIn(MIN_HEIGHT, MAX_HEIGHT)
+        mCaptureHeight = height
+        mCaptureWidth = (height * aspectRatio).roundToInt()
         // Приводим к чётному: цветовая плоскость NV21 идёт вдвое реже
         mCaptureWidth = (mCaptureWidth + 1) and 0x7FFFFFFE.toInt()
         mCaptureHeight = (mCaptureHeight + 1) and 0x7FFFFFFE.toInt()
@@ -330,7 +333,9 @@ class AmlogicWbCaptureEncoder(
         private const val VDIN_INDEX = 1
 
         /** Для выборки цветов хватает и этого, а уменьшает картинку сам VDIN. */
-        private const val CAPTURE_WIDTH = 96
+        /* Ниже подсветка начинает мылить, выше зоны уже не станут точнее. */
+        private const val MIN_HEIGHT = 36
+        private const val MAX_HEIGHT = 288
 
         /** Выше этого захват съедает слишком много: кадр читается целиком. */
         private const val MAX_FPS = 20

@@ -107,8 +107,10 @@ object UsbSerialPermissionHelper {
             return false
         }
 
-        // Не спрашиваем про устройства, не являющиеся последовательными (случайная USB-периферия)
-        if (!isSerialDevice(context, target)) {
+        // Не спрашиваем про устройства, не являющиеся последовательными (случайная USB-периферия).
+        // Lightpack — исключение: он подключается как устройство ввода, и перебор
+        // последовательных портов его не признаёт, хотя разрешение ему нужно так же.
+        if (!isSerialDevice(context, target) && !LightpackClient.isLightpack(target)) {
             onDenied?.invoke()
             return false
         }

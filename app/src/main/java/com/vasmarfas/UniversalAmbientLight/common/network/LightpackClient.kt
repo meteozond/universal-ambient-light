@@ -368,5 +368,11 @@ class LightpackClient(
 
         /** Есть ли вообще такое устройство: спрашивают до попытки подключения. */
         fun isAvailable(context: Context): Boolean = findDevice(context) != null
+
+        /** Наше ли это устройство. Нужно там, где остальную периферию отсеивают. */
+        fun isLightpack(device: UsbDevice): Boolean =
+            KNOWN_DEVICES.any { (vid, pid) ->
+                device.vendorId == vid && device.productId == pid
+            }
     }
 }

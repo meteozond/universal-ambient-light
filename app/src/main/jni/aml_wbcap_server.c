@@ -166,7 +166,15 @@ struct ion_fd_data { int handle, fd; };
 #define MAX_STEP_RATIO 5
 
 struct scaler {
+    /*
+     * По дескриптору на проход. Движком пользуется и сам драйвер захвата, а
+     * ядро перепрограммирует железо целиком только когда работа приходит от
+     * другого собеседника, чем в прошлый раз. С одним дескриптором второй наш
+     * проход считался продолжением первого, шёл по чужим настройкам и с каждым
+     * кадром выдавал всё более тёмный обрезок.
+     */
     int ge2d_fd;
+    int ge2d_fd2;
     int ion_fd;
     int mid_fd;      /* промежуточный кадр; -1, если хватает одного прохода */
     int mid_w, mid_h;
@@ -214,6 +222,10 @@ struct scaler {
 #define MAX_CELLS (256 * 256)
 #define MAX_SIDE 1920
 #define FRAME_TIMEOUT_SEC 3
+
+/* Сколько кадров пропустить до сверки движка с процессором и сколько сверить. */
+#define CHECK_SKIP 2
+#define CHECK_FRAMES 3
 
 /*
  * Допуск на дрожание. Кадры приходят с частотой развёртки, и без него запрос
@@ -353,8 +365,12 @@ static int scaler_open(struct scaler *sc, int w, int h) {
 
     memset(sc, 0, sizeof(*sc));
     sc->ge2d_fd = open("/dev/ge2d", O_RDWR);
-    if (sc->ge2d_fd < 0) {
+    sc->ge2d_fd2 = open("/dev/ge2d", O_RDWR);
+    if (sc->ge2d_fd < 0 || sc->ge2d_fd2 < 0) {
         LOGE("Cannot open /dev/ge2d: %s", strerror(errno));
+        if (sc->ge2d_fd >= 0) close(sc->ge2d_fd);
+        if (sc->ge2d_fd2 >= 0) close(sc->ge2d_fd2);
+        sc->ge2d_fd = sc->ge2d_fd2 = -1;
         return 0;
     }
 
@@ -388,7 +404,8 @@ static int scaler_open(struct scaler *sc, int w, int h) {
 fail:
     if (sc->ion_fd >= 0) close(sc->ion_fd);
     if (sc->ge2d_fd >= 0) close(sc->ge2d_fd);
-    sc->ge2d_fd = sc->ion_fd = -1;
+    if (sc->ge2d_fd2 >= 0) close(sc->ge2d_fd2);
+    sc->ge2d_fd = sc->ge2d_fd2 = sc->ion_fd = -1;
     return 0;
 }
 
@@ -396,7 +413,7 @@ fail:
  * Один проход движка: из холста или буфера-источника в буфер-приёмник.
  * Источник задаётся либо номером холста (тогда src_fd < 0), либо дескриптором.
  */
-static int blit(struct scaler *sc, int src_canvas, int src_fd,
+static int blit(int ge2d_fd, int src_canvas, int src_fd,
                 int sw, int sh, int dst_fd, int dw, int dh) {
     struct ge2d_config_ion cfg;
     struct ge2d_op op;
@@ -440,7 +457,7 @@ static int blit(struct scaler *sc, int src_canvas, int src_fd,
      * дескриптор настоящим и пытается получить по нему адрес.
      */
 
-    if (ioctl(sc->ge2d_fd, GE2D_CONFIG_EX_ION, &cfg) < 0) {
+    if (ioctl(ge2d_fd, GE2D_CONFIG_EX_ION, &cfg) < 0) {
         static int told;
         if (!told) { LOGE("ge2d config rejected: %s", strerror(errno)); told = 1; }
         return 0;
@@ -451,7 +468,7 @@ static int blit(struct scaler *sc, int src_canvas, int src_fd,
     op.src1_rect.h = sh;
     op.dst_rect.w = dw;
     op.dst_rect.h = dh;
-    if (ioctl(sc->ge2d_fd, GE2D_STRETCHBLIT_NOALPHA, &op) < 0) {
+    if (ioctl(ge2d_fd, GE2D_STRETCHBLIT_NOALPHA, &op) < 0) {
         static int told;
         if (!told) { LOGE("ge2d blit rejected: %s", strerror(errno)); told = 1; }
         return 0;
@@ -463,10 +480,11 @@ static int blit(struct scaler *sc, int src_canvas, int src_fd,
 /* Уменьшает кадр движком. Возвращает 0, если не вышло — вызывающий сделает сам. */
 static int scaler_run(struct scaler *sc, int src_canvas, int sw, int sh, int dw, int dh) {
     if (sc->mid_fd < 0)
-        return blit(sc, src_canvas, -1, sw, sh, sc->dst_fd, dw, dh);
+        return blit(sc->ge2d_fd, src_canvas, -1, sw, sh, sc->dst_fd, dw, dh);
 
-    return blit(sc, src_canvas, -1, sw, sh, sc->mid_fd, sc->mid_w, sc->mid_h) &&
-           blit(sc, 0, sc->mid_fd, sc->mid_w, sc->mid_h, sc->dst_fd, dw, dh);
+    /* Проходы идут через разные дескрипторы — см. пояснение у struct scaler. */
+    return blit(sc->ge2d_fd, src_canvas, -1, sw, sh, sc->mid_fd, sc->mid_w, sc->mid_h) &&
+           blit(sc->ge2d_fd2, 0, sc->mid_fd, sc->mid_w, sc->mid_h, sc->dst_fd, dw, dh);
 }
 
 static int write_all(int fd, const void *buf, size_t len) {
@@ -493,7 +511,7 @@ int main(int argc, char **argv) {
     unsigned int input;
     int grab_w, grab_h, mapped = 0;
     struct scaler sc;
-    int use_scaler = 0, checked = 0;
+    int use_scaler = 0, checked = 0, seen = 0;
     uint8_t *small;
     const uint8_t *frame_out;
     long frame_interval_us;
@@ -719,7 +737,12 @@ int main(int argc, char **argv) {
                 scaler_run(&sc, buffers[buf.index].canvas, grab_w, grab_h, out_w, out_h)) {
                 out = (const uint8_t *)sc.dst;
 
-                if (!checked) {
+                /*
+                 * Сверяем не первый кадр, а несколько подряд чуть позже. Беда,
+                 * из-за которой движок отдавал всё более тёмный обрезок,
+                 * проявлялась со второго кадра — проверка первого её пропускала.
+                 */
+                if (checked < CHECK_FRAMES && ++seen > CHECK_SKIP) {
                     /*
                      * Адрес буфера мы вычислили, а не получили — на первом кадре
                      * сверяем движок с процессором. Расходятся — значит адрес не
@@ -733,13 +756,13 @@ int main(int argc, char **argv) {
                     for (k = 0; k < n; k++)
                         diff += abs((int)out[k] - (int)small[k]);
 
-                    checked = 1;
-                    LOGI("hardware vs cpu difference: %ld", diff / n);
+                    checked++;
                     if (diff / n > 24) {
-                        LOGI("Hardware scaler unavailable here, shrinking on CPU");
+                        LOGI("Hardware scaler differs by %ld, shrinking on CPU", diff / n);
                         use_scaler = 0;
+                        checked = CHECK_FRAMES;
                         out = small;
-                    } else {
+                    } else if (checked == CHECK_FRAMES) {
                         LOGI("Hardware scaler checked out");
                     }
                 }

@@ -19,11 +19,15 @@
  *
  * Цвета драйвер отдаёт сразу в RGB, перекладывать их не приходится.
  *
- * А вот размер уменьшаем сами. Аппаратное уменьшение здесь просить нельзя: при
- * сильном сжатии контроллер начинает выводить уменьшенную копию кадра в углу
- * экрана — видно на телевизоре, пока идёт захват. При съёме близко к полному
- * размеру этого не происходит, поэтому берём кадр крупным и ужимаем выборкой:
- * подсветке нужны средние цвета по клеткам, а не каждая точка.
+ * Кадр берём полным. Просить у драйвера маленький нельзя: он передаёт размер
+ * масштабатору дисплейного контроллера, а тот при сильном сжатии начинает
+ * выводить уменьшенную копию кадра в углу экрана — видно на телевизоре, пока
+ * идёт захват.
+ *
+ * Уменьшает движок 2D, в два приёма: за один он такое сжатие не берёт. Кадр в
+ * его памяти лежит уже описанным — драйвер захвата отдаёт номер холста вместе
+ * с буфером, так что ни адреса, ни копирования не нужно. Если движок почему-то
+ * недоступен, кадр ужимает процессор выборкой.
  *
  * Требуется:
  *   - root-доступ (su)
@@ -73,22 +77,43 @@ struct ge2d_key_ctrl {
     int key_enable, key_color, key_mask, key_mode;
 };
 
+/*
+ * Раскладка полей должна в точности повторять ядерную (ge2d.h): её размер
+ * входит в номер команды, а неизвестный номер этот драйвер принимает молча и
+ * ничего не делает — ни ошибки, ни настройки. Поля второго источника здесь
+ * есть: в этой сборке ядра он включён, и без них размер расходится на восемь
+ * байт.
+ */
 struct ge2d_config_ion {
     struct ge2d_para_ex src_para, src2_para, dst_para;
     struct ge2d_key_ctrl src_key, src2_key;
+
+    unsigned char src1_cmult_asel;
+    unsigned char src2_cmult_asel;
+    unsigned char src2_cmult_ad;
     int alu_const_color;
-    unsigned int src1_gb_alpha, op_mode;
-    unsigned char bitmask_en, bytemask_only;
+    unsigned char src1_gb_alpha_en;
+    unsigned int src1_gb_alpha;
+    unsigned char src2_gb_alpha_en;
+    unsigned int src2_gb_alpha;
+    unsigned int op_mode;
+    unsigned char bitmask_en;
+    unsigned char bytemask_only;
     unsigned int bitmask;
     unsigned char dst_xy_swap;
+
     unsigned int hf_init_phase; int hf_rpt_num;
     unsigned int hsc_start_phase_step; int hsc_phase_slope;
     unsigned int vf_init_phase; int vf_rpt_num;
     unsigned int vsc_start_phase_step; int vsc_phase_slope;
     unsigned char src1_vsc_phase0_always_en, src1_hsc_phase0_always_en;
     unsigned char src1_hsc_rpt_ctrl, src1_vsc_rpt_ctrl;
+
     struct ge2d_planes_ion src_planes[4], src2_planes[4], dst_planes[4];
 };
+
+/* Размер выверен на живом ядре: другой размер — другая команда. */
+typedef char ge2d_config_size_check[sizeof(struct ge2d_config_ion) == 408 ? 1 : -1];
 
 struct ge2d_rect { int x, y, w, h; };
 
@@ -102,9 +127,20 @@ struct ge2d_op {
 /* Команда растяжения задана прямым числом, а не макросом. */
 #define GE2D_STRETCHBLIT_NOALPHA 0x4702
 
+/* Откуда движок берёт картинку: свой холст или память по дескриптору. */
+#define MEM_TYPE_ALLOC 2
+#define MEM_TYPE_CANVAS_READY 3
+
 #define GE2D_ENDIAN_SHIFT 24
 #define GE2D_LITTLE_ENDIAN (1 << GE2D_ENDIAN_SHIFT)
-#define GE2D_FORMAT_S24_RGB (GE2D_LITTLE_ENDIAN | 0x00200)
+#define GE2D_COLOR_MAP_SHIFT 20
+/*
+ * Три байта на точку в порядке R, G, B. У движка это зовётся BGR: имя описывает
+ * порядок от старшего байта слова, а не порядок в памяти. Драйвер захвата
+ * описывает свои буферы этим же кодом, так что источник и приёмник совпадают.
+ */
+#define GE2D_FORMAT_S24_RGB \
+    (GE2D_LITTLE_ENDIAN | 0x00200 | (5 << GE2D_COLOR_MAP_SHIFT))
 
 /* Память под приёмник берём из ION: движку нужен физически непрерывный кусок. */
 struct ion_alloc_data {
@@ -114,13 +150,26 @@ struct ion_alloc_data {
 };
 struct ion_fd_data { int handle, fd; };
 
+/* Куча непрерывной памяти; номер совпадает с её видом. */
+#define HEAP_CONTIGUOUS 4
+
 #define ION_IOC_MAGIC 'I'
 #define ION_IOC_ALLOC _IOWR(ION_IOC_MAGIC, 0, struct ion_alloc_data)
 #define ION_IOC_MAP   _IOWR(ION_IOC_MAGIC, 2, struct ion_fd_data)
 
+/*
+ * Уменьшать сразу в двадцать раз движок не умеет: он считает шаг выборки как
+ * dst * 10 / src, и на таком отношении шаг обнуляется — операция не выполняется
+ * и обрывается по времени. Поэтому идём в два приёма через промежуточный кадр,
+ * держа каждый шаг в пределах пятикратного.
+ */
+#define MAX_STEP_RATIO 5
+
 struct scaler {
     int ge2d_fd;
     int ion_fd;
+    int mid_fd;      /* промежуточный кадр; -1, если хватает одного прохода */
+    int mid_w, mid_h;
     int dst_fd;
     void *dst;
     size_t dst_len;
@@ -176,7 +225,7 @@ struct scaler {
 struct buffer {
     void *start;
     size_t length;
-    unsigned long phys;   /* адрес для движка; 0, если узнать не вышло */
+    int canvas;   /* номер холста для движка; 0, если драйвер его не дал */
 };
 
 static volatile int g_running = 1;
@@ -265,53 +314,33 @@ static void shrink(const uint8_t *src, int sw, int sh, uint8_t *dst, int dw, int
     }
 }
 
-/*
- * Достаёт из сообщений ядра адрес памяти, из которой драйвер раздаёт буферы.
- *
- * Штатного способа узнать его нет: буферы наружу не отдаются, а таблица страниц
- * для этой памяти адреса не показывает. Зато драйвер печатает адрес при каждом
- * запуске захвата — этим и пользуемся. Если строку не нашли, движок просто не
- * включится, и кадр уменьшит процессор.
- */
-static unsigned long capture_memory_base(void) {
-    FILE *f = popen("dmesg | grep -o 'amlvideo2\\.[0-9] cma memory is [0-9a-f]*' | tail -1", "r");
-    char line[160];
-    unsigned long base = 0;
+/* Выделяет буфер в непрерывной памяти. Возвращает дескриптор или -1. */
+static int ion_alloc(int ion_fd, size_t len) {
+    struct ion_alloc_data alloc;
+    struct ion_fd_data fdd;
 
-    if (!f) return 0;
-    if (fgets(line, sizeof(line), f)) {
-        char *p = strrchr(line, ' ');
-        if (p) base = strtoul(p + 1, NULL, 16);
+    memset(&alloc, 0, sizeof(alloc));
+    alloc.len = (len + 4095) & ~4095UL;
+    alloc.align = 4096;
+    /*
+     * Только непрерывная память. Страничная тоже выделяется, но физического
+     * адреса у неё нет, движок такой буфер не примет, а необслуженная настройка
+     * оставляет приёмником холст с номером ноль — то есть кадровый буфер
+     * экрана. Лучше отказаться сразу.
+     */
+    alloc.heap_id_mask = 1 << HEAP_CONTIGUOUS;
+    if (ioctl(ion_fd, ION_IOC_ALLOC, &alloc) < 0) {
+        LOGE("ION alloc failed: %s", strerror(errno));
+        return -1;
     }
-    pclose(f);
-    return base;
-}
 
-/*
- * Узнаёт физический адрес по обычному адресу в памяти процесса.
- *
- * Драйвер захвата не умеет отдавать буферы движку напрямую, зато движок умеет
- * читать по физическому адресу. Буферы захвата лежат в непрерывной памяти, так
- * что достаточно перевести адрес первой страницы. Нужен root — таблица страниц
- * иначе не читается.
- */
-static unsigned long phys_addr_of(const void *addr) {
-    uint64_t entry;
-    size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    off_t off = (off_t)(((uintptr_t)addr / page) * 8);
-    int fd = open("/proc/self/pagemap", O_RDONLY);
-
-    if (fd < 0) return 0;
-    if (pread(fd, &entry, sizeof(entry), off) != (ssize_t)sizeof(entry)) {
-        close(fd);
-        return 0;
+    memset(&fdd, 0, sizeof(fdd));
+    fdd.handle = alloc.handle;
+    if (ioctl(ion_fd, ION_IOC_MAP, &fdd) < 0) {
+        LOGE("ION map failed: %s", strerror(errno));
+        return -1;
     }
-    close(fd);
-
-    /* Старший бит говорит, что страница есть в памяти. */
-    if (!(entry & (1ULL << 63))) return 0;
-    return (unsigned long)((entry & ((1ULL << 55) - 1)) * page +
-                           ((uintptr_t)addr % page));
+    return fdd.fd;
 }
 
 /*
@@ -336,29 +365,23 @@ static int scaler_open(struct scaler *sc, int w, int h) {
     }
 
     sc->dst_len = ((size_t)w * h * 3 + 4095) & ~4095UL;
-    memset(&alloc, 0, sizeof(alloc));
-    alloc.len = sc->dst_len;
-    alloc.align = 4096;
-    alloc.heap_id_mask = 1 << 0;
-    if (ioctl(sc->ion_fd, ION_IOC_ALLOC, &alloc) < 0) {
-        /* На части сборок системная куча под другим номером. */
-        alloc.heap_id_mask = 1 << 4;
-        if (ioctl(sc->ion_fd, ION_IOC_ALLOC, &alloc) < 0) {
-            LOGE("ION alloc failed: %s", strerror(errno));
-            goto fail;
-        }
-    }
-
-    memset(&fdd, 0, sizeof(fdd));
-    fdd.handle = alloc.handle;
-    if (ioctl(sc->ion_fd, ION_IOC_MAP, &fdd) < 0) {
-        LOGE("ION map failed: %s", strerror(errno));
-        goto fail;
-    }
-    sc->dst_fd = fdd.fd;
+    sc->dst_fd = ion_alloc(sc->ion_fd, sc->dst_len);
+    if (sc->dst_fd < 0) goto fail;
 
     sc->dst = mmap(NULL, sc->dst_len, PROT_READ | PROT_WRITE, MAP_SHARED, sc->dst_fd, 0);
     if (sc->dst == MAP_FAILED) { sc->dst = NULL; goto fail; }
+
+    /*
+     * Промежуточный кадр нужен, только если за один приём не уложиться.
+     * Берём его вчетверо крупнее выхода — тогда оба шага остаются пологими.
+     */
+    sc->mid_fd = -1;
+    if (GRAB_WIDTH / w > MAX_STEP_RATIO || GRAB_HEIGHT / h > MAX_STEP_RATIO) {
+        sc->mid_w = w * 4;
+        sc->mid_h = h * 4;
+        sc->mid_fd = ion_alloc(sc->ion_fd, (size_t)sc->mid_w * sc->mid_h * 3);
+        if (sc->mid_fd < 0) goto fail;
+    }
 
     return 1;
 
@@ -369,46 +392,81 @@ fail:
     return 0;
 }
 
-/* Уменьшает кадр движком. Возвращает 0, если не вышло — вызывающий сделает сам. */
-static int scaler_run(struct scaler *sc, unsigned long src_phys, int sw, int sh, int dw, int dh) {
+/*
+ * Один проход движка: из холста или буфера-источника в буфер-приёмник.
+ * Источник задаётся либо номером холста (тогда src_fd < 0), либо дескриптором.
+ */
+static int blit(struct scaler *sc, int src_canvas, int src_fd,
+                int sw, int sh, int dst_fd, int dw, int dh) {
     struct ge2d_config_ion cfg;
     struct ge2d_op op;
-    int i;
 
     memset(&cfg, 0, sizeof(cfg));
-    cfg.src_para.mem_type = 2;              /* память задаётся дескриптором */
+    /*
+     * Второй источник не нужен, но нулём его оставлять нельзя: ноль означает
+     * «взять слой экрана», и ядро уходит выяснять его свойства, а затем
+     * отказывает. Отмечаем его как незадействованный.
+     */
+    cfg.src2_para.mem_type = MEM_TYPE_CANVAS_READY;
+
     cfg.src_para.format = GE2D_FORMAT_S24_RGB;
     cfg.src_para.width = sw;
     cfg.src_para.height = sh;
-    cfg.src_planes[0].addr = src_phys;
-    cfg.src_planes[0].w = sw;
-    cfg.src_planes[0].h = sh;
-    cfg.src_planes[0].shared_fd = -1;   /* источник задан адресом */
+    if (src_fd < 0) {
+        /*
+         * Холст драйвер захвата настраивает сам под каждый свой буфер и отдаёт
+         * номер наружу, так что адрес нам знать незачем. При этом типе памяти
+         * движок берёт номер как есть и в свою настройку холстов не лезет.
+         */
+        cfg.src_para.mem_type = MEM_TYPE_CANVAS_READY;
+        cfg.src_para.canvas_index = src_canvas;
+    } else {
+        cfg.src_para.mem_type = MEM_TYPE_ALLOC;
+        cfg.src_planes[0].w = sw;
+        cfg.src_planes[0].h = sh;
+        cfg.src_planes[0].shared_fd = src_fd;
+    }
 
-    cfg.dst_para.mem_type = 2;
+    cfg.dst_para.mem_type = MEM_TYPE_ALLOC;
     cfg.dst_para.format = GE2D_FORMAT_S24_RGB;
     cfg.dst_para.width = dw;
     cfg.dst_para.height = dh;
     cfg.dst_planes[0].w = dw;
     cfg.dst_planes[0].h = dh;
-    cfg.dst_planes[0].shared_fd = sc->dst_fd;
+    cfg.dst_planes[0].shared_fd = dst_fd;
 
-    for (i = 1; i < 4; i++) {
-        cfg.src_planes[i].shared_fd = -1;
-        cfg.dst_planes[i].shared_fd = -1;
+    /*
+     * Незанятые плоскости оставляем нулями: ядро считает любой ненулевой
+     * дескриптор настоящим и пытается получить по нему адрес.
+     */
+
+    if (ioctl(sc->ge2d_fd, GE2D_CONFIG_EX_ION, &cfg) < 0) {
+        static int told;
+        if (!told) { LOGE("ge2d config rejected: %s", strerror(errno)); told = 1; }
+        return 0;
     }
-    (void)i;
-
-    if (ioctl(sc->ge2d_fd, GE2D_CONFIG_EX_ION, &cfg) < 0) return 0;
 
     memset(&op, 0, sizeof(op));
     op.src1_rect.w = sw;
     op.src1_rect.h = sh;
     op.dst_rect.w = dw;
     op.dst_rect.h = dh;
-    if (ioctl(sc->ge2d_fd, GE2D_STRETCHBLIT_NOALPHA, &op) < 0) return 0;
+    if (ioctl(sc->ge2d_fd, GE2D_STRETCHBLIT_NOALPHA, &op) < 0) {
+        static int told;
+        if (!told) { LOGE("ge2d blit rejected: %s", strerror(errno)); told = 1; }
+        return 0;
+    }
 
     return 1;
+}
+
+/* Уменьшает кадр движком. Возвращает 0, если не вышло — вызывающий сделает сам. */
+static int scaler_run(struct scaler *sc, int src_canvas, int sw, int sh, int dw, int dh) {
+    if (sc->mid_fd < 0)
+        return blit(sc, src_canvas, -1, sw, sh, sc->dst_fd, dw, dh);
+
+    return blit(sc, src_canvas, -1, sw, sh, sc->mid_fd, sc->mid_w, sc->mid_h) &&
+           blit(sc, 0, sc->mid_fd, sc->mid_w, sc->mid_h, sc->dst_fd, dw, dh);
 }
 
 static int write_all(int fd, const void *buf, size_t len) {
@@ -436,7 +494,6 @@ int main(int argc, char **argv) {
     int grab_w, grab_h, mapped = 0;
     struct scaler sc;
     int use_scaler = 0, checked = 0;
-    unsigned long mem_base;
     uint8_t *small;
     const uint8_t *frame_out;
     long frame_interval_us;
@@ -519,8 +576,6 @@ int main(int argc, char **argv) {
             LOGE("Cannot set frame rate: %s", strerror(errno));
     }
 
-    mem_base = capture_memory_base();
-
     memset(&req, 0, sizeof(req));
     req.count = BUFFERS;
     req.type = type;
@@ -554,12 +609,10 @@ int main(int argc, char **argv) {
             break;
         }
         /*
-         * Движок читает кадр сам, ему нужен физический адрес. Буферы лежат в
-         * общей памяти драйвера подряд, поэтому считаем адрес от её начала.
+         * Драйвер кладёт сюда номер холста, которым он описал этот буфер.
+         * Движку большего и не нужно: холст уже знает и адрес, и длину строки.
          */
-        buffers[i].phys = phys_addr_of(buffers[i].start);
-        if (!buffers[i].phys && mem_base)
-            buffers[i].phys = mem_base + (unsigned long)i * buffers[i].length;
+        buffers[i].canvas = (int)buf.reserved;
 
         if (xioctl(fd, VIDIOC_QBUF, &buf) < 0) {
             LOGE("Cannot queue buffer %d: %s", i, strerror(errno));
@@ -576,11 +629,10 @@ int main(int argc, char **argv) {
     }
 
     use_scaler = scaler_open(&sc, out_w, out_h);
-    if (use_scaler && !buffers[0].phys) {
-        LOGI("Buffer address unknown, shrinking on CPU");
+    if (use_scaler && !buffers[0].canvas) {
+        LOGI("Driver gave no canvas for its buffers, shrinking on CPU");
         use_scaler = 0;
     }
-    if (use_scaler) LOGI("Trying the hardware scaler");
 
     if (xioctl(fd, VIDIOC_STREAMON, &type) < 0) {
         LOGE("Cannot start streaming: %s", strerror(errno));
@@ -664,7 +716,7 @@ int main(int argc, char **argv) {
             const uint8_t *out;
 
             if (use_scaler &&
-                scaler_run(&sc, buffers[buf.index].phys, grab_w, grab_h, out_w, out_h)) {
+                scaler_run(&sc, buffers[buf.index].canvas, grab_w, grab_h, out_w, out_h)) {
                 out = (const uint8_t *)sc.dst;
 
                 if (!checked) {
@@ -682,6 +734,7 @@ int main(int argc, char **argv) {
                         diff += abs((int)out[k] - (int)small[k]);
 
                     checked = 1;
+                    LOGI("hardware vs cpu difference: %ld", diff / n);
                     if (diff / n > 24) {
                         LOGI("Hardware scaler unavailable here, shrinking on CPU");
                         use_scaler = 0;

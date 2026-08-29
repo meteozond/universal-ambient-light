@@ -577,10 +577,10 @@ int main(int argc, char **argv) {
 
     use_scaler = scaler_open(&sc, out_w, out_h);
     if (use_scaler && !buffers[0].phys) {
-        LOGE("Cannot resolve buffer address, falling back to CPU");
+        LOGI("Buffer address unknown, shrinking on CPU");
         use_scaler = 0;
     }
-    LOGI(use_scaler ? "Scaling in hardware" : "Scaling on CPU");
+    if (use_scaler) LOGI("Trying the hardware scaler");
 
     if (xioctl(fd, VIDIOC_STREAMON, &type) < 0) {
         LOGE("Cannot start streaming: %s", strerror(errno));
@@ -683,7 +683,7 @@ int main(int argc, char **argv) {
 
                     checked = 1;
                     if (diff / n > 24) {
-                        LOGE("Hardware scaler gives a different picture, using CPU");
+                        LOGI("Hardware scaler unavailable here, shrinking on CPU");
                         use_scaler = 0;
                         out = small;
                     } else {

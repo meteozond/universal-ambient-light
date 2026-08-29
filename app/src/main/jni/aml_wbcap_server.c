@@ -158,28 +158,40 @@ struct ion_fd_data { int handle, fd; };
 #define ION_IOC_MAP   _IOWR(ION_IOC_MAGIC, 2, struct ion_fd_data)
 
 /*
- * Уменьшать сразу в двадцать раз движок не умеет: он считает шаг выборки как
- * dst * 10 / src, и на таком отношении шаг обнуляется — операция не выполняется
- * и обрывается по времени. Поэтому идём в два приёма через промежуточный кадр,
- * держа каждый шаг в пределах пятикратного.
+ * За один проход движок уменьшает не более чем в десять раз: шаг выборки он
+ * считает как приёмник * 10 / источник целыми числами, и на большем сжатии шаг
+ * обнуляется — операция не выполняется и обрывается по времени. Поэтому идём
+ * цепочкой, держа каждый шаг с запасом от предела.
  */
-#define MAX_STEP_RATIO 5
+#define MAX_STEP_RATIO 8
+#define MAX_PASSES 4
 
+/*
+ * Ширину каждого кадра цепочки округляем так, чтобы строка была кратна 32
+ * байтам: холст движка иначе описывает буфер неверно, и на выходе получается
+ * мусор. Три байта на точку, поэтому кратной 32 должна быть и сама ширина.
+ */
+#define WIDTH_ALIGN 32
+#define ALIGN_WIDTH(w) (((w) + WIDTH_ALIGN - 1) & ~(WIDTH_ALIGN - 1))
+
+struct pass {
+    int fd;          /* приёмник этого прохода */
+    int w, h;
+    int ge2d_fd;     /* свой дескриптор на проход, см. ниже */
+};
+
+/*
+ * Дескриптор на каждый проход. Движком пользуется и сам драйвер захвата, а ядро
+ * перепрограммирует железо целиком только когда работа приходит от другого
+ * собеседника, чем в прошлый раз. С общим дескриптором второй проход считался
+ * продолжением первого, шёл по чужим настройкам и с каждым кадром выдавал всё
+ * более тёмный обрезок.
+ */
 struct scaler {
-    /*
-     * По дескриптору на проход. Движком пользуется и сам драйвер захвата, а
-     * ядро перепрограммирует железо целиком только когда работа приходит от
-     * другого собеседника, чем в прошлый раз. С одним дескриптором второй наш
-     * проход считался продолжением первого, шёл по чужим настройкам и с каждым
-     * кадром выдавал всё более тёмный обрезок.
-     */
-    int ge2d_fd;
-    int ge2d_fd2;
     int ion_fd;
-    int mid_fd;      /* промежуточный кадр; -1, если хватает одного прохода */
-    int mid_w, mid_h;
-    int dst_fd;
-    void *dst;
+    struct pass passes[MAX_PASSES];
+    int pass_count;
+    void *dst;                    /* последний приёмник, отображённый в память */
     size_t dst_len;
 };
 
@@ -215,11 +227,15 @@ struct scaler {
 #define GRAB_WIDTH  1920
 #define GRAB_HEIGHT 1080
 
-/* Шаг выборки при усреднении: на клетку хватает и каждой восьмой точки. */
+/* Предел шага выборки при усреднении: чаще брать точки незачем. */
 #define SAMPLE_STEP 16
 
-/* Потолок числа клеток: под них держим накопители. */
-#define MAX_CELLS (256 * 256)
+/*
+ * Потолок числа клеток: под них держим накопители. Хватает на сетку 512x288 —
+ * подробнее подсветке не нужно, а на снятом кадре 1920x1080 это и так каждая
+ * четвёртая точка по стороне.
+ */
+#define MAX_CELLS (512 * 288)
 #define MAX_SIDE 1920
 #define FRAME_TIMEOUT_SEC 3
 
@@ -295,19 +311,30 @@ static void shrink(const uint8_t *src, int sw, int sh, uint8_t *dst, int dw, int
     static uint32_t acc[MAX_CELLS * 3];
     static uint32_t cnt[MAX_CELLS];
     int x, y, i;
+    /*
+     * Шаг подбираем под размер сетки: при крупной постоянный шаг оставил бы
+     * часть клеток вовсе без точек. На каждую клетку берём хотя бы пару
+     * отсчётов по каждой стороне.
+     */
+    int step_x = sw / (dw * 2);
+    int step_y = sh / (dh * 2);
 
     if (dw * dh > MAX_CELLS) return;
+    if (step_x > SAMPLE_STEP) step_x = SAMPLE_STEP;
+    if (step_y > SAMPLE_STEP) step_y = SAMPLE_STEP;
+    if (step_x < 1) step_x = 1;
+    if (step_y < 1) step_y = 1;
 
     memset(acc, 0, sizeof(uint32_t) * dw * dh * 3);
     memset(cnt, 0, sizeof(uint32_t) * dw * dh);
 
-    for (y = 0; y < sh; y += SAMPLE_STEP) {
+    for (y = 0; y < sh; y += step_y) {
         const uint8_t *row = src + (size_t)y * sw * 3;
         int cell_y = y * dh / sh;
         uint32_t *arow = acc + (size_t)cell_y * dw * 3;
         uint32_t *crow = cnt + (size_t)cell_y * dw;
 
-        for (x = 0; x < sw; x += SAMPLE_STEP) {
+        for (x = 0; x < sw; x += step_x) {
             int cell_x = x * dw / sw;
             const uint8_t *p = row + x * 3;
 
@@ -325,6 +352,8 @@ static void shrink(const uint8_t *src, int sw, int sh, uint8_t *dst, int dw, int
         dst[i * 3 + 2] = (uint8_t)(acc[i * 3 + 2] / n);
     }
 }
+
+/* Выделяет буфер в непрерывной памяти. Возвращает дескриптор или -1. */
 
 /* Выделяет буфер в непрерывной памяти. Возвращает дескриптор или -1. */
 static int ion_alloc(int ion_fd, size_t len) {
@@ -355,57 +384,88 @@ static int ion_alloc(int ion_fd, size_t len) {
     return fdd.fd;
 }
 
+/* Освобождает всё, что занял масштабатор. Безопасно вызывать наполовину готовым. */
+static void scaler_close(struct scaler *sc) {
+    int i;
+
+    if (sc->dst) { munmap(sc->dst, sc->dst_len); sc->dst = NULL; }
+    for (i = 0; i < MAX_PASSES; i++) {
+        if (sc->passes[i].ge2d_fd >= 0) close(sc->passes[i].ge2d_fd);
+        if (sc->passes[i].fd >= 0) close(sc->passes[i].fd);
+        sc->passes[i].ge2d_fd = sc->passes[i].fd = -1;
+    }
+    if (sc->ion_fd >= 0) { close(sc->ion_fd); sc->ion_fd = -1; }
+    sc->pass_count = 0;
+}
+
 /*
- * Готовит движок: открывает его и выделяет приёмный буфер.
- * Возвращает 0, если движок недоступен — тогда работаем как раньше, процессором.
+ * Готовит движок: строит цепочку проходов от снятого кадра к нужному размеру.
+ *
+ * Шаги подбираются так, чтобы каждый оставался в пределах, которые движок
+ * берёт: сначала жмём с постоянным коэффициентом, последним проходом добираем
+ * остаток. Возвращает 0, если движок недоступен — тогда кадр ужмёт процессор.
  */
 static int scaler_open(struct scaler *sc, int w, int h) {
-    struct ion_alloc_data alloc;
-    struct ion_fd_data fdd;
+    int cur_w = GRAB_WIDTH, cur_h = GRAB_HEIGHT;
+    int i;
 
     memset(sc, 0, sizeof(*sc));
-    sc->ge2d_fd = open("/dev/ge2d", O_RDWR);
-    sc->ge2d_fd2 = open("/dev/ge2d", O_RDWR);
-    if (sc->ge2d_fd < 0 || sc->ge2d_fd2 < 0) {
-        LOGE("Cannot open /dev/ge2d: %s", strerror(errno));
-        if (sc->ge2d_fd >= 0) close(sc->ge2d_fd);
-        if (sc->ge2d_fd2 >= 0) close(sc->ge2d_fd2);
-        sc->ge2d_fd = sc->ge2d_fd2 = -1;
-        return 0;
-    }
+    for (i = 0; i < MAX_PASSES; i++) sc->passes[i].ge2d_fd = sc->passes[i].fd = -1;
 
     sc->ion_fd = open("/dev/ion", O_RDWR);
     if (sc->ion_fd < 0) {
         LOGE("Cannot open /dev/ion: %s", strerror(errno));
-        close(sc->ge2d_fd); sc->ge2d_fd = -1; return 0;
+        return 0;
     }
 
-    sc->dst_len = ((size_t)w * h * 3 + 4095) & ~4095UL;
-    sc->dst_fd = ion_alloc(sc->ion_fd, sc->dst_len);
-    if (sc->dst_fd < 0) goto fail;
+    /* Промежуточные проходы: пока остаток сжатия не по силам одному. */
+    while (sc->pass_count < MAX_PASSES - 1 &&
+           (cur_w / w > MAX_STEP_RATIO || cur_h / h > MAX_STEP_RATIO)) {
+        struct pass *p = &sc->passes[sc->pass_count];
 
-    sc->dst = mmap(NULL, sc->dst_len, PROT_READ | PROT_WRITE, MAP_SHARED, sc->dst_fd, 0);
-    if (sc->dst == MAP_FAILED) { sc->dst = NULL; goto fail; }
+        cur_w /= MAX_STEP_RATIO;
+        cur_h /= MAX_STEP_RATIO;
+        /* Ниже цели опускаться незачем, а чётность нужна дальше по тракту. */
+        if (cur_w < w) cur_w = w;
+        if (cur_h < h) cur_h = h;
+        cur_w = ALIGN_WIDTH(cur_w);
+        cur_h = (cur_h + 1) & ~1;
 
-    /*
-     * Промежуточный кадр нужен, только если за один приём не уложиться.
-     * Берём его вчетверо крупнее выхода — тогда оба шага остаются пологими.
-     */
-    sc->mid_fd = -1;
-    if (GRAB_WIDTH / w > MAX_STEP_RATIO || GRAB_HEIGHT / h > MAX_STEP_RATIO) {
-        sc->mid_w = w * 4;
-        sc->mid_h = h * 4;
-        sc->mid_fd = ion_alloc(sc->ion_fd, (size_t)sc->mid_w * sc->mid_h * 3);
-        if (sc->mid_fd < 0) goto fail;
+        p->w = cur_w;
+        p->h = cur_h;
+        p->fd = ion_alloc(sc->ion_fd, (size_t)cur_w * cur_h * 3);
+        if (p->fd < 0) goto fail;
+        sc->pass_count++;
     }
 
+    /* Последний проход пишет в буфер, который читаем мы. */
+    {
+        struct pass *p = &sc->passes[sc->pass_count];
+
+        p->w = w;
+        p->h = h;
+        sc->dst_len = ((size_t)w * h * 3 + 4095) & ~4095UL;
+        p->fd = ion_alloc(sc->ion_fd, sc->dst_len);
+        if (p->fd < 0) goto fail;
+        sc->dst = mmap(NULL, sc->dst_len, PROT_READ | PROT_WRITE, MAP_SHARED, p->fd, 0);
+        if (sc->dst == MAP_FAILED) { sc->dst = NULL; goto fail; }
+        sc->pass_count++;
+    }
+
+    for (i = 0; i < sc->pass_count; i++) {
+        sc->passes[i].ge2d_fd = open("/dev/ge2d", O_RDWR);
+        if (sc->passes[i].ge2d_fd < 0) {
+            LOGE("Cannot open /dev/ge2d: %s", strerror(errno));
+            goto fail;
+        }
+    }
+
+    LOGI("Hardware scaler: %dx%d to %dx%d in %d pass(es)",
+         GRAB_WIDTH, GRAB_HEIGHT, w, h, sc->pass_count);
     return 1;
 
 fail:
-    if (sc->ion_fd >= 0) close(sc->ion_fd);
-    if (sc->ge2d_fd >= 0) close(sc->ge2d_fd);
-    if (sc->ge2d_fd2 >= 0) close(sc->ge2d_fd2);
-    sc->ge2d_fd = sc->ge2d_fd2 = sc->ion_fd = -1;
+    scaler_close(sc);
     return 0;
 }
 
@@ -478,13 +538,21 @@ static int blit(int ge2d_fd, int src_canvas, int src_fd,
 }
 
 /* Уменьшает кадр движком. Возвращает 0, если не вышло — вызывающий сделает сам. */
-static int scaler_run(struct scaler *sc, int src_canvas, int sw, int sh, int dw, int dh) {
-    if (sc->mid_fd < 0)
-        return blit(sc->ge2d_fd, src_canvas, -1, sw, sh, sc->dst_fd, dw, dh);
+static int scaler_run(struct scaler *sc, int src_canvas, int sw, int sh) {
+    int src_fd = -1;
+    int i;
 
-    /* Проходы идут через разные дескрипторы — см. пояснение у struct scaler. */
-    return blit(sc->ge2d_fd, src_canvas, -1, sw, sh, sc->mid_fd, sc->mid_w, sc->mid_h) &&
-           blit(sc->ge2d_fd2, 0, sc->mid_fd, sc->mid_w, sc->mid_h, sc->dst_fd, dw, dh);
+    for (i = 0; i < sc->pass_count; i++) {
+        struct pass *p = &sc->passes[i];
+
+        if (!blit(p->ge2d_fd, src_canvas, src_fd, sw, sh, p->fd, p->w, p->h))
+            return 0;
+        /* Дальше источником служит приёмник предыдущего прохода. */
+        src_fd = p->fd;
+        sw = p->w;
+        sh = p->h;
+    }
+    return 1;
 }
 
 static int write_all(int fd, const void *buf, size_t len) {
@@ -532,6 +600,14 @@ int main(int argc, char **argv) {
         LOGE("Bad frame size %dx%d", out_w, out_h);
         return 1;
     }
+    /*
+     * Ширину подгоняем под требования движка; кому кадр уходит дальше, размер
+     * узнаёт из заголовка, так что подгонка никого не сбивает.
+     */
+    out_w = ALIGN_WIDTH(out_w);
+    out_h = (out_h + 1) & ~1;
+    if (out_w > MAX_SIDE) out_w = MAX_SIDE & ~(WIDTH_ALIGN - 1);
+
     if (fps < 1 || fps > 120) fps = 30;
     frame_interval_us = 1000000L / fps;
 
@@ -734,7 +810,7 @@ int main(int argc, char **argv) {
             const uint8_t *out;
 
             if (use_scaler &&
-                scaler_run(&sc, buffers[buf.index].canvas, grab_w, grab_h, out_w, out_h)) {
+                scaler_run(&sc, buffers[buf.index].canvas, grab_w, grab_h)) {
                 out = (const uint8_t *)sc.dst;
 
                 /*

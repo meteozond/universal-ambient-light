@@ -148,7 +148,9 @@ class AmlogicWbCaptureEncoder(
             return
         }
 
-        val fps = max(1, mOptions.frameRate)
+        // Кадр приходится брать полным (см. сервер), а читать его дорого,
+        // поэтому частоту здесь придерживаем.
+        val fps = max(1, minOf(mOptions.frameRate, MAX_FPS))
         val cmd = arrayOf(
             "su", "-c",
             "${binary.absolutePath} $mCaptureWidth $mCaptureHeight $fps $DEVICE_PATH $VDIN_INDEX"
@@ -328,7 +330,10 @@ class AmlogicWbCaptureEncoder(
         private const val VDIN_INDEX = 1
 
         /** Для выборки цветов хватает и этого, а уменьшает картинку сам VDIN. */
-        private const val CAPTURE_WIDTH = 192
+        private const val CAPTURE_WIDTH = 96
+
+        /** Выше этого захват съедает слишком много: кадр читается целиком. */
+        private const val MAX_FPS = 20
         private const val MAX_SIDE = 1920
         private const val AVAILABILITY_CHECK_TIMEOUT_SEC = 3L
 
